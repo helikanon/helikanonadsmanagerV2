@@ -2,6 +2,13 @@ plugins {
     id("com.android.library")
 }
 
+// AGP 9 Kotlin desteğini kendi içinde barındırır (kotlin eklentisi otomatik gelir).
+// Bu modül AGP 8 kullanan bir uygulama projesine kaynak modül olarak dahil
+// edildiğinde ise Kotlin plugin'i ayrıca uygulanmalıdır.
+if (extensions.findByName("kotlin") == null) {
+    pluginManager.apply("org.jetbrains.kotlin.android")
+}
+
 android {
     namespace = "com.helikanon.adsmanager"
     compileSdk = 37
@@ -29,15 +36,19 @@ android {
     }
 }
 
-kotlin {
+// kotlin { compilerOptions { ... } } yerine task bazlı ayar: hem AGP 9'un yerleşik
+// Kotlin desteğiyle hem de ayrıca uygulanan kotlin-android plugin'iyle çalışır.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.19.0")
-    implementation("androidx.lifecycle:lifecycle-process:2.11.0")
+    // Not: 1.19.0 / 2.11.0 sürümleri compileSdk 37 + AGP 9.1 zorunlu kılıyor.
+    // Tüketici uygulamalar halen AGP 8 / compileSdk 36'da olduğu için bir alt seri kullanılıyor.
+    implementation("androidx.core:core-ktx:1.18.0")
+    implementation("androidx.lifecycle:lifecycle-process:2.10.0")
 
     // ---- Google AdMob (legacy GMA SDK) ----
     // Not: 25.4.0, AppLovin google-adapter 25.4.0.0 ile sertifikasyon uyumu için seçildi.
