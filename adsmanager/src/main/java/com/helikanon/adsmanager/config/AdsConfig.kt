@@ -1,0 +1,193 @@
+package com.helikanon.adsmanager.config
+
+/**
+ * Bir placement'ın network bazlı ad unit id eşlemesi.
+ */
+class PlacementConfig(
+    val id: String,
+    val adUnitIds: Map<AdNetwork, String>,
+    val enabled: Boolean = true
+) {
+    fun adUnitIdFor(network: AdNetwork): String? = adUnitIds[network]?.takeIf { it.isNotBlank() }
+}
+
+/**
+ * Format (interstitial / rewarded / banner / appOpen) bazlı ayarlar.
+ */
+class FormatConfig(
+    val format: AdFormat,
+    val enabled: Boolean = true,
+    /** Waterfall sırası. Örn: [ADMOB, APPLOVIN] -> önce AdMob dener, fail olursa AppLovin. */
+    val networkOrder: List<AdNetwork> = listOf(AdNetwork.ADMOB, AdNetwork.APPLOVIN),
+    /** true ise init sonrası ve her gösterimden sonra otomatik önceden yükleme yapılır. */
+    val preload: Boolean = false,
+    /** load/show çağrılarında placement verilmezse kullanılacak placement. */
+    val defaultPlacementId: String? = null,
+    val placements: Map<String, PlacementConfig> = emptyMap(),
+    /** Preload açıkken önceden yüklenecek placement listesi. Boşsa sadece default placement yüklenir. */
+    val preloadPlacementIds: List<String> = emptyList()
+) {
+    fun placement(id: String?): PlacementConfig? {
+        val pid = id ?: defaultPlacementId ?: return null
+        return placements[pid]
+    }
+
+    fun effectivePreloadPlacements(): List<PlacementConfig> {
+        val ids = if (preloadPlacementIds.isNotEmpty()) preloadPlacementIds
+        else listOfNotNull(defaultPlacementId)
+        return ids.mapNotNull { placements[it] }.filter { it.enabled }
+    }
+}
+
+/**
+ * Kütüphanenin ana konfigürasyonu. [AdsConfig.build] DSL'i veya
+ * [com.helikanon.adsmanager.config.AdsConfigJsonParser] ile JSON'dan oluşturulur.
+ */
+class AdsConfig private constructor(
+    /** Tüm reklamları aç/kapat (global kill switch). */
+    val adsEnabled: Boolean,
+    /** AppLovin SDK key (MAX kullanılacaksa zorunlu). */
+    val applovinSdkKey: String?,
+    /** İki interstitial gösterimi arasındaki minimum süre (saniye). */
+    val interstitialMinIntervalSec: Int,
+    /** Son interstitial/rewarded gösteriminden sonra app open gösterilebilmesi için gereken minimum süre (saniye). */
+    val appOpenMinGapSec: Int,
+    /** Oturum başına maksimum interstitial gösterimi. 0 = limitsiz. */
+    val sessionMaxInterstitials: Int,
+    /** Uygulama açılışından ilk interstitial gösterimine kadar beklenecek süre (saniye). 0 = beklemesiz. */
+    val firstInterstitialDelaySec: Int,
+    /** Bir network'ün load cevabı için beklenecek maksimum süre (saniye). Aşılırsa sıradaki network denenir. */
+    val loadTimeoutSec: Int,
+    /** Otomatik retry başlangıç gecikmesi (saniye). Exponential backoff ile artar. */
+    val retryBaseDelaySec: Int,
+    /** Otomatik retry maksimum gecikmesi (saniye). */
+    val retryMaxDelaySec: Int,
+    /** Yüklenen fullscreen reklamın geçerlilik süresi (dakika). Aşılırsa expire sayılır ve yeniden yüklenir. */
+    val adTtlMinutes: Int,
+    /** Test modu: AdMob test cihazları + AppLovin test cihazları aktifleşir, debug log açılır. */
+    val testMode: Boolean,
+    /** Debug loglama. */
+    val debugLogging: Boolean,
+    /** Google UMP (GDPR) consent akışını kütüphane yönetsin mi? */
+    val umpConsentEnabled: Boolean,
+    /** COPPA: çocuklara yönelik uygulama işareti (AdMob'a iletilir). */
+    val childDirected: Boolean?,
+    /** CCPA "do not sell" işareti (AppLovin'e iletilir). */
+    val doNotSell: Boolean?,
+    /** AdMob test cihaz id'leri (testMode'dan bağımsız da verilebilir). */
+    val admobTestDeviceIds: List<String>,
+    /** AppLovin test cihazlarının advertising id'leri (GAID). */
+    val maxTestDeviceAdvertisingIds: List<String>,
+    val formats: Map<AdFormat, FormatConfig>
+) {
+
+    fun format(format: AdFormat): FormatConfig? = formats[format]
+
+    fun isFormatEnabled(format: AdFormat): Boolean =
+        adsEnabled && (formats[format]?.enabled == true)
+
+    /** Config'de en az bir formatta kullanılan network'ler. */
+    fun usedNetworks(): Set<AdNetwork> =
+        formats.values.filter { it.enabled }.flatMap { it.networkOrder }.toSet()
+
+    // ---------------------------------------------------------------- Builder
+
+    companion object {
+        fun build(block: Builder.() -> Unit): AdsConfig = Builder().apply(block).build()
+    }
+
+    class Builder {
+        var adsEnabled: Boolean = true
+        var applovinSdkKey: String? = null
+        var interstitialMinIntervalSec: Int = 30
+        var appOpenMinGapSec: Int = 30
+        var sessionMaxInterstitials: Int = 0
+        var firstInterstitialDelaySec: Int = 0
+        var loadTimeoutSec: Int = 20
+        var retryBaseDelaySec: Int = 8
+        var retryMaxDelaySec: Int = 64
+        var adTtlMinutes: Int = 55
+        var testMode: Boolean = false
+        var debugLogging: Boolean = false
+        var umpConsentEnabled: Boolean = false
+        var childDirected: Boolean? = null
+        var doNotSell: Boolean? = null
+        var admobTestDeviceIds: List<String> = emptyList()
+        var maxTestDeviceAdvertisingIds: List<String> = emptyList()
+
+        private val formatBuilders = mutableMapOf<AdFormat, FormatBuilder>()
+
+        fun interstitial(block: FormatBuilder.() -> Unit) = format(AdFormat.INTERSTITIAL, block)
+        fun rewarded(block: FormatBuilder.() -> Unit) = format(AdFormat.REWARDED, block)
+        fun banner(block: FormatBuilder.() -> Unit) = format(AdFormat.BANNER, block)
+        fun appOpen(block: FormatBuilder.() -> Unit) = format(AdFormat.APP_OPEN, block)
+
+        private fun format(format: AdFormat, block: FormatBuilder.() -> Unit) {
+            formatBuilders.getOrPut(format) { FormatBuilder(format) }.apply(block)
+        }
+
+        fun build(): AdsConfig = AdsConfig(
+            adsEnabled = adsEnabled,
+            applovinSdkKey = applovinSdkKey,
+            interstitialMinIntervalSec = interstitialMinIntervalSec,
+            appOpenMinGapSec = appOpenMinGapSec,
+            sessionMaxInterstitials = sessionMaxInterstitials,
+            firstInterstitialDelaySec = firstInterstitialDelaySec,
+            loadTimeoutSec = loadTimeoutSec,
+            retryBaseDelaySec = retryBaseDelaySec,
+            retryMaxDelaySec = retryMaxDelaySec,
+            adTtlMinutes = adTtlMinutes,
+            testMode = testMode,
+            debugLogging = debugLogging || testMode,
+            umpConsentEnabled = umpConsentEnabled,
+            childDirected = childDirected,
+            doNotSell = doNotSell,
+            admobTestDeviceIds = admobTestDeviceIds,
+            maxTestDeviceAdvertisingIds = maxTestDeviceAdvertisingIds,
+            formats = formatBuilders.mapValues { it.value.build() }
+        )
+    }
+
+    class FormatBuilder(private val format: AdFormat) {
+        var enabled: Boolean = true
+        var preload: Boolean = false
+        var defaultPlacement: String? = null
+        var preloadPlacements: List<String> = emptyList()
+
+        /** [AdNetwork] listesi olarak sıra. */
+        var networkOrder: List<AdNetwork> = listOf(AdNetwork.ADMOB, AdNetwork.APPLOVIN)
+
+        /** "admob,applovin" şeklinde string ile sıra vermek için. */
+        var networkOrderString: String? = null
+            set(value) {
+                field = value
+                if (value != null) networkOrder = AdNetwork.parseOrder(value)
+            }
+
+        private val placements = mutableMapOf<String, PlacementConfig>()
+
+        fun placement(
+            id: String,
+            admobAdUnitId: String? = null,
+            applovinAdUnitId: String? = null,
+            enabled: Boolean = true
+        ) {
+            val map = buildMap {
+                admobAdUnitId?.let { put(AdNetwork.ADMOB, it) }
+                applovinAdUnitId?.let { put(AdNetwork.APPLOVIN, it) }
+            }
+            placements[id] = PlacementConfig(id, map, enabled)
+            if (defaultPlacement == null) defaultPlacement = id
+        }
+
+        fun build(): FormatConfig = FormatConfig(
+            format = format,
+            enabled = enabled,
+            networkOrder = networkOrder,
+            preload = preload,
+            defaultPlacementId = defaultPlacement,
+            placements = placements.toMap(),
+            preloadPlacementIds = preloadPlacements
+        )
+    }
+}

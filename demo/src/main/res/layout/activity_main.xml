@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <Button
+                android:id="@+id/btnInterstitial"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Interstitial Göster" />
+
+            <Button
+                android:id="@+id/btnInterstitialForced"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Interstitial Göster (süre kontrolsüz)" />
+
+            <Button
+                android:id="@+id/btnRewarded"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Rewarded Göster" />
+
+            <Button
+                android:id="@+id/btnAppOpen"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="App Open Göster" />
+
+            <Button
+                android:id="@+id/btnBannerAdaptive"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Adaptive Banner Yükle" />
+
+            <Button
+                android:id="@+id/btnBannerStandard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Standart Banner Yükle" />
+
+            <Button
+                android:id="@+id/btnBannerMrec"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="MREC Yükle" />
+
+            <Button
+                android:id="@+id/btnMediationDebugger"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="MAX Mediation Debugger" />
+
+            <Button
+                android:id="@+id/btnAdInspector"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="AdMob Ad Inspector" />
+        </LinearLayout>
+    </ScrollView>
+
+    <FrameLayout
+        android:id="@+id/bannerContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="50dp"
+        android:background="#EEEEEE" />
+</LinearLayout>
