@@ -52,6 +52,49 @@ AppLovin SDK key manifest'e değil, config'e yazılır (aşağıda).
 
 Gereksinimler: minSdk 24, AGP 8.7+, Kotlin 2.0+, JDK 17.
 
+### AppLovin Ad Review (opsiyonel)
+
+Bu kütüphane için **zorunlu değildir**, reklam gösterimini etkilemez. MAX panelindeki
+Ad Review servisini açar: uygulamanızda gerçekten hangi creative'in gösterildiğini
+(ekran görüntüsü, ağ trafiği, advertiser/creative kimliği) görürsünüz ve sorunlu
+reklamları tek tek engelleyebilirsiniz.
+
+Mediation'da reklam Meta, Pangle, Mintegral, Unity gibi ağlardan gelir; ne
+gösterildiğini normalde göremezsiniz. Ad Review'ın çözdüğü tipik sorunlar: uygulamayı
+kilitleyen / kendiliğinden yönlendiren creative'ler, uygunsuz içerik, Play Store
+politikasını ihlal eden reklamlar, rakip uygulama reklamları. Bunu sağlamak için
+plugin build sırasında APK'yı enstrümante eder — bu yüzden ayrı bir Gradle plugin'i
+olarak gelir, SDK'nın içinde değildir.
+
+Plugin nihai APK'yı işlediği için **uygulama modülüne** eklenir, bu kütüphaneye değil:
+
+```kotlin
+// root build.gradle.kts
+buildscript {
+    repositories { maven { url = uri("https://artifacts.applovin.com/android") } }
+    dependencies { classpath("com.applovin.quality:AppLovinQualityServiceGradlePlugin:+") }
+}
+
+// app/build.gradle.kts
+plugins {
+    id("com.android.application")
+    id("applovin-quality-service")
+}
+
+applovin {
+    apiKey = "«ad-review-key»"
+}
+```
+
+Buradaki `apiKey`, init'te verilen `applovinSdkKey` ile **aynı şey değildir**; MAX
+panelinde Account > General > Keys altındaki ayrı Ad Review anahtarıdır. Repo public
+ise anahtarı `local.properties`'ten okuyun.
+
+Notlar:
+- Build süresini uzatır (her build'de enstrümantasyon adımı çalışır).
+- Plugin eski AGP variant API'lerine dayanır; uygulamanız AGP 9'a çıkarsa plugin'in
+  güncel sürümüyle uyumu ayrıca doğrulanmalıdır.
+
 ---
 
 ## 2. Başlatma
