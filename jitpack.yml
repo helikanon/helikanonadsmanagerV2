@@ -1,0 +1,8 @@
+# JitPack build ayarlari.
+# Varsayilan JDK 8'dir; AGP 9 / Gradle 9 icin JDK 17 gerekir.
+jdk:
+  - openjdk17
+
+# Demo uygulamasini derlemeye gerek yok; sadece kutuphaneyi yayinla.
+install:
+  - ./gradlew :adsmanager:publishToMavenLocal --no-daemon --stacktrace

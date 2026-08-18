@@ -25,6 +25,33 @@ dependencyResolutionManagement {
 }
 ```
 
+JitPack üzerinden bağımlılık olarak alacaksanız `jitpack.io` reposunu da ekleyin:
+
+```kotlin
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://dl-maven-android.mintegral.com/repository/mbridge_android_sdk_oversea") }
+        maven { url = uri("https://artifact.bytedance.com/repository/pangle") }
+        // JitPack en sona eklenmeli
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+```
+
+### JitPack bağımlılığı olarak ekleme
+
+```kotlin
+// app/build.gradle.kts
+dependencies {
+    implementation("com.github.serkandaglioglu:helikanonadsmanagerV2:1.0.0")
+}
+```
+
+Sürüm, GitHub'da atılan git tag'inin adıdır. Belirli bir commit'i denemek için tag yerine
+kısa commit hash'i, geliştirme sürümü için `main-SNAPSHOT` da kullanılabilir.
+
 ### Modül olarak ekleme
 
 Bu projeyi `helikanonlibs` altında modül olarak kullanıyorsanız:
@@ -327,7 +354,7 @@ AdsManager.setRewardedSsvOptions(userId, customData)  // AdMob rewarded SSV
 ## 6. Notlar
 
 - AdMob **legacy** SDK (`play-services-ads:25.3.0`) kullanılır; mediation özelliği kullanılmaz (pure AdMob). 25.3.0 seçildi çünkü AppLovin `google-adapter:25.3.0.0` bu sürümle sertifikalı — GMA'yı yükseltirken google-adapter'ı da aynı majöre yükseltin.
-- `google-adapter` sürümü sabitlendi; diğer MAX adaptörleri AppLovin'in önerdiği gibi `+` (en güncel) ile bağlanır. Sabitlemek isterseniz `adsmanager/build.gradle.kts` içinde değiştirin.
+- Tüm MAX adaptör sürümleri `adsmanager/build.gradle.kts` içinde sabitlenmiştir (kütüphane JitPack'ten yayınlandığı için tekrarlanabilir build şart). Güncel adaptörlere geçmek için o bloğu düzenleyip yeni bir sürüm yayınlayın.
 - **Aynı MAX rewarded ad unit id'sini birden fazla placement'ta kullanmayın** — `MaxRewardedAd` ad unit başına singleton'dır; kütüphane gösterim olaylarını doğru wrapper'a yönlendirir ama aynı anda iki placement'a aynı unit ile load etmek kaçınılması gereken bir kullanım.
 - MAX adaptive banner için legacy `adaptive_banner` extra parametresi kullanılır; AppLovin bunu 13.x'te hâlâ destekler. İleride kaldırılırsa `MaxAdViewConfiguration.setAdaptiveType(ANCHORED)` API'sine geçin.
 - Bu kod cloud ortamında derlenemedi (Google Maven erişimi yok). İlk `gradle sync` / build sırasında ufak derleme düzeltmeleri gerekebilir; hata çıktısını paylaşmanız yeterli.
