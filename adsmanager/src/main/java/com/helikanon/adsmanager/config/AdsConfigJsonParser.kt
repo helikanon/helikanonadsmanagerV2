@@ -6,12 +6,26 @@ import org.json.JSONObject
  * JSON string'den [AdsConfig] üretir. Firebase Remote Config gibi bir kaynaktan
  * gelen config'i doğrudan kütüphaneye vermek için kullanılır.
  *
+ * ## JSON'dan OKUNMAYAN alanlar
+ *
+ * Aşağıdaki alanlar bilinçli olarak JSON'dan okunmaz; uygulama kodundan verilmelidir:
+ * `applovinSdkKey`, `testMode`, `admobTestDeviceIds`, `maxTestDeviceAdvertisingIds`,
+ * `childDirected`, `doNotSell`. JSON içinde bu anahtarlar bulunsa bile yok sayılır.
+ *
+ * Bunları JSON ile birlikte vermek için [parse] fonksiyonunun `localSettings` bloğunu
+ * kullanın; blok JSON okunduktan sonra uygulanır, yani her zaman kod kazanır:
+ * ```kotlin
+ * val config = AdsConfigJsonParser.parse(remoteJson) {
+ *     applovinSdkKey = BuildConfig.APPLOVIN_SDK_KEY
+ *     testMode = BuildConfig.DEBUG
+ *     childDirected = false
+ * }
+ * ```
+ *
  * Örnek JSON:
  * ```json
  * {
  *   "adsEnabled": true,
- *   "applovinSdkKey": "SDK_KEY",
- *   "testMode": false,
  *   "debugLogging": false,
  *   "umpConsentEnabled": true,
  *   "interstitialMinIntervalSec": 45,
@@ -38,12 +52,16 @@ import org.json.JSONObject
  */
 object AdsConfigJsonParser {
 
+    /**
+     * @param localSettings JSON okunduktan sonra builder üzerinde çalıştırılır. SDK key,
+     *   test modu ve gizlilik bayrakları gibi yalnızca koddan verilen alanlar burada set edilir.
+     */
     @Throws(org.json.JSONException::class)
-    fun parse(json: String): AdsConfig {
+    @JvmOverloads
+    fun parse(json: String, localSettings: (AdsConfig.Builder.() -> Unit)? = null): AdsConfig {
         val root = JSONObject(json)
         return AdsConfig.build {
             adsEnabled = root.optBoolean("adsEnabled", true)
-            applovinSdkKey = root.optStringOrNull("applovinSdkKey")
             interstitialMinIntervalSec = root.optInt("interstitialMinIntervalSec", 30)
             appOpenMinGapSec = root.optInt("appOpenMinGapSec", 30)
             sessionMaxInterstitials = root.optInt("sessionMaxInterstitials", 0)
@@ -52,24 +70,26 @@ object AdsConfigJsonParser {
             retryBaseDelaySec = root.optInt("retryBaseDelaySec", 8)
             retryMaxDelaySec = root.optInt("retryMaxDelaySec", 64)
             adTtlMinutes = root.optInt("adTtlMinutes", 55)
-            testMode = root.optBoolean("testMode", false)
             debugLogging = root.optBoolean("debugLogging", false)
             umpConsentEnabled = root.optBoolean("umpConsentEnabled", false)
-            if (root.has("childDirected")) childDirected = root.optBoolean("childDirected")
-            if (root.has("doNotSell")) doNotSell = root.optBoolean("doNotSell")
-            admobTestDeviceIds = root.optStringList("admobTestDeviceIds")
-            maxTestDeviceAdvertisingIds = root.optStringList("maxTestDeviceAdvertisingIds")
+
+            // NOT: applovinSdkKey, testMode, admobTestDeviceIds, maxTestDeviceAdvertisingIds,
+            // childDirected ve doNotSell JSON'dan okunmaz; sadece localSettings ile verilir.
 
             parseFormat(root, "interstitial") { block -> interstitial(block) }
             parseFormat(root, "rewarded") { block -> rewarded(block) }
             parseFormat(root, "banner") { block -> banner(block) }
             // hem "appOpen" hem "appopen" anahtarını kabul et
             parseFormat(root, "appOpen", "appopen", "app_open") { block -> appOpen(block) }
+
+            // en son uygulanır ki koddan verilen değerler JSON'u ezsin
+            localSettings?.invoke(this)
         }
     }
 
-    fun parseOrNull(json: String): AdsConfig? = try {
-        parse(json)
+    @JvmOverloads
+    fun parseOrNull(json: String, localSettings: (AdsConfig.Builder.() -> Unit)? = null): AdsConfig? = try {
+        parse(json, localSettings)
     } catch (_: Exception) {
         null
     }

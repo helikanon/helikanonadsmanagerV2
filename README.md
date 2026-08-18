@@ -203,9 +203,21 @@ AdsManager.setLogListener { level, message -> /* hataları analytics'e gönderin
 
 ### Remote Config ile JSON config
 
+Şu alanlar **JSON'dan okunmaz**, sadece koddan verilir (JSON'da bulunsalar bile yok sayılır):
+`applovinSdkKey`, `testMode`, `admobTestDeviceIds`, `maxTestDeviceAdvertisingIds`,
+`childDirected`, `doNotSell`. Bunları `localSettings` bloğunda verin — blok JSON okunduktan
+sonra uygulanır ve `updateConfig` çağrılarında otomatik olarak tekrar uygulanır.
+
 ```kotlin
-AdsManager.initialize(context, jsonString)     // veya
-AdsManager.updateConfig(jsonString)            // fetch sonrası; yüklü reklamlar korunur
+AdsManager.initialize(context, jsonString, localSettings = {
+    applovinSdkKey = BuildConfig.APPLOVIN_SDK_KEY
+    testMode = BuildConfig.DEBUG
+    admobTestDeviceIds = listOf("TEST_DEVICE_ID")
+    childDirected = false
+    doNotSell = userOptedOutOfSale
+})
+
+AdsManager.updateConfig(jsonString)   // fetch sonrası; local ayarlar korunur, yüklü reklamlar durur
 ```
 
 JSON şeması (tam örnek `AdsConfigJsonParser` dokümantasyonunda):
@@ -213,7 +225,6 @@ JSON şeması (tam örnek `AdsConfigJsonParser` dokümantasyonunda):
 ```json
 {
   "adsEnabled": true,
-  "applovinSdkKey": "SDK_KEY",
   "umpConsentEnabled": true,
   "interstitialMinIntervalSec": 45,
   "appOpenMinGapSec": 30,

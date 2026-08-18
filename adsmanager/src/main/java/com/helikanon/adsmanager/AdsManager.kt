@@ -63,6 +63,13 @@ object AdsManager {
     private var appContext: Context? = null
     private var sdksStarted = false
 
+    /**
+     * JSON config'e her parse sonrası uygulanan, koddan verilen ayarlar
+     * (SDK key, test modu, gizlilik bayrakları). [initialize] ile saklanır ki
+     * sonraki [updateConfig] JSON güncellemelerinde de korunsun.
+     */
+    private var localSettings: (AdsConfig.Builder.() -> Unit)? = null
+
     val isInitialized: Boolean get() = config != null
 
     val currentConfig: AdsConfig? get() = config
@@ -102,11 +109,30 @@ object AdsManager {
         startSdks(onReady)
     }
 
-    /** JSON config ile başlatma (ör. Firebase Remote Config değeri). */
+    /**
+     * JSON config ile başlatma (ör. Firebase Remote Config değeri).
+     *
+     * `applovinSdkKey`, `testMode`, `admobTestDeviceIds`, `maxTestDeviceAdvertisingIds`,
+     * `childDirected` ve `doNotSell` JSON'dan okunmaz; [localSettings] bloğunda verilmelidir.
+     * Blok saklanır ve sonraki [updateConfig] JSON güncellemelerinde tekrar uygulanır.
+     *
+     * ```kotlin
+     * AdsManager.initialize(this, remoteJson, localSettings = {
+     *     applovinSdkKey = BuildConfig.APPLOVIN_SDK_KEY
+     *     testMode = BuildConfig.DEBUG
+     * })
+     * ```
+     */
     @JvmStatic
     @JvmOverloads
-    fun initialize(context: Context, configJson: String, onReady: (() -> Unit)? = null) {
-        val parsed = AdsConfigJsonParser.parseOrNull(configJson)
+    fun initialize(
+        context: Context,
+        configJson: String,
+        localSettings: (AdsConfig.Builder.() -> Unit)? = null,
+        onReady: (() -> Unit)? = null
+    ) {
+        this.localSettings = localSettings
+        val parsed = AdsConfigJsonParser.parseOrNull(configJson, localSettings)
         if (parsed == null) {
             AdsLogger.e("initialize failed: config JSON could not be parsed")
             return
@@ -148,10 +174,20 @@ object AdsManager {
         }
     }
 
-    /** JSON ile config güncelleme. Parse başarısızsa false döner ve mevcut config korunur. */
+    /**
+     * JSON ile config güncelleme. Parse başarısızsa false döner ve mevcut config korunur.
+     *
+     * [initialize] sırasında verilen local ayar bloğu (SDK key, test modu, gizlilik
+     * bayrakları) otomatik olarak yeniden uygulanır; ayrı bir blok vermek isterseniz
+     * [localSettings] parametresini kullanın.
+     */
     @JvmStatic
-    fun updateConfig(configJson: String): Boolean {
-        val parsed = AdsConfigJsonParser.parseOrNull(configJson) ?: return false
+    @JvmOverloads
+    fun updateConfig(
+        configJson: String,
+        localSettings: (AdsConfig.Builder.() -> Unit)? = this.localSettings
+    ): Boolean {
+        val parsed = AdsConfigJsonParser.parseOrNull(configJson, localSettings) ?: return false
         updateConfig(parsed)
         return true
     }
