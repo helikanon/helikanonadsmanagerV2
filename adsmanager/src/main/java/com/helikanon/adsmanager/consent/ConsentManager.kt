@@ -40,6 +40,13 @@ internal object ConsentManager {
                 setDebugGeography(ConsentDebugSettings.DebugGeography.DEBUG_GEOGRAPHY_EEA)
             }.build()
             paramsBuilder.setConsentDebugSettings(debugSettings)
+        } else if (testMode) {
+            AdsLogger.w(
+                "testMode=true but no test device hashed ids (admobTestDeviceIds) given; " +
+                    "UMP debug geography (EEA) is NOT applied. Outside the EEA the consent form " +
+                    "will never appear and canRequestAds() returns true. Copy the id from the UMP " +
+                    "log line: addTestDeviceHashedId(\"...\")"
+            )
         }
 
         val info = consentInfo(activity)

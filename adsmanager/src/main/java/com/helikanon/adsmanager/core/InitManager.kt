@@ -48,6 +48,7 @@ internal object InitManager {
             }
 
             remainingNetworks = networks.size
+            if (config.testMode) warnMissingTestDeviceIds(config, networks)
             if (AdNetwork.ADMOB in networks) initAdMob(appContext, config)
             if (AdNetwork.APPLOVIN in networks) initAppLovin(appContext, config)
 
@@ -58,6 +59,27 @@ internal object InitManager {
                     markAllReady()
                 }
             }
+        }
+    }
+
+    /**
+     * testMode aciksa ama test cihaz id'leri bos birakilmissa uyarir. Bu durumda cihaz
+     * test cihazi sayilmaz: gercek reklam envanteri doner (kendi reklamina tiklamak
+     * invalid traffic'tir). UMP tarafindaki karsiligi ConsentManager'da uyarilir.
+     */
+    private fun warnMissingTestDeviceIds(config: AdsConfig, networks: Set<AdNetwork>) {
+        if (AdNetwork.ADMOB in networks && config.admobTestDeviceIds.isEmpty()) {
+            AdsLogger.w(
+                "testMode=true but admobTestDeviceIds is empty! This device is NOT a test device; " +
+                    "AdMob will serve REAL ads. Clicking them counts as invalid traffic. " +
+                    "Copy the id from the GMA log line: setTestDeviceIds(Arrays.asList(\"...\"))"
+            )
+        }
+        if (AdNetwork.APPLOVIN in networks && config.maxTestDeviceAdvertisingIds.isEmpty()) {
+            AdsLogger.w(
+                "testMode=true but maxTestDeviceAdvertisingIds is empty! This device is NOT a test device; " +
+                    "MAX will serve REAL ads. Use the device advertising id (GAID) shown in Mediation Debugger."
+            )
         }
     }
 
