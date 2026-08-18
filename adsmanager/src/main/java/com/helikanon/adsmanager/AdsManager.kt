@@ -478,7 +478,7 @@ object AdsManager {
                         val err = error ?: "unknown error"
                         EventCenter.event { it.onAdLoadFailed(format, placement.id, err) }
                         // Preload açıksa exponential backoff ile otomatik yeniden dene
-                        if (formatConfig.preload) {
+                        if (formatConfig.autoPreloads(placement)) {
                             RetryScheduler.scheduleRetry(
                                 format, placement.id, cfg.retryBaseDelaySec, cfg.retryMaxDelaySec
                             ) {
@@ -573,7 +573,7 @@ object AdsManager {
                 EventCenter.event { it.onAdShowFailed(info, error) }
                 callbacks?.onShowFailed?.let { cb -> MainThread.run { cb(error) } }
                 ad.destroy()
-                if (formatConfig.preload) loadFullscreen(format, placement.id)
+                if (formatConfig.autoPreloads(placement)) loadFullscreen(format, placement.id)
             }
 
             override fun onDismissed() {
@@ -581,7 +581,7 @@ object AdsManager {
                 EventCenter.event { it.onAdDismissed(info) }
                 callbacks?.onDismissed?.let { cb -> MainThread.run { cb() } }
                 // Gösterim sonrası otomatik re-preload
-                if (formatConfig.preload) loadFullscreen(format, placement.id)
+                if (formatConfig.autoPreloads(placement)) loadFullscreen(format, placement.id)
             }
 
             override fun onClicked() {
@@ -603,7 +603,7 @@ object AdsManager {
             EventCenter.event { it.onAdShowFailed(info, t.message ?: "show threw") }
             callbacks?.onShowFailed?.let { cb -> MainThread.run { cb(t.message ?: "show threw") } }
             ad.destroy()
-            if (formatConfig.preload) loadFullscreen(format, placement.id)
+            if (formatConfig.autoPreloads(placement)) loadFullscreen(format, placement.id)
             return false
         }
         return true
@@ -614,7 +614,7 @@ object AdsManager {
         for (format in listOf(AdFormat.INTERSTITIAL, AdFormat.REWARDED, AdFormat.APP_OPEN)) {
             val fc = cfg.format(format) ?: continue
             if (!fc.enabled || !fc.preload) continue
-            fc.effectivePreloadPlacements().forEach { placement ->
+            fc.initialPreloadPlacements().forEach { placement ->
                 loadFullscreen(format, placement.id, isAutoPreload = true)
             }
         }

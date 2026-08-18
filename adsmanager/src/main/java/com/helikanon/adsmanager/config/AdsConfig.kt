@@ -6,7 +6,14 @@ package com.helikanon.adsmanager.config
 class PlacementConfig(
     val id: String,
     val adUnitIds: Map<AdNetwork, String>,
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    /**
+     * Bu placement otomatik preload'a katılsın mı? `false` ise ne açılışta yüklenir
+     * ne de gösterim sonrası tekrar yüklenir; yalnızca manuel `load...()` çağrısıyla
+     * ya da hazır değilken yapılan `show...()` çağrısının tetiklediği yüklemeyle dolar.
+     * Format seviyesindeki [FormatConfig.preload] kapalıysa bu değerin etkisi yoktur.
+     */
+    val preload: Boolean = true
 ) {
     fun adUnitIdFor(network: AdNetwork): String? = adUnitIds[network]?.takeIf { it.isNotBlank() }
 }
@@ -24,18 +31,30 @@ class FormatConfig(
     /** load/show çağrılarında placement verilmezse kullanılacak placement. */
     val defaultPlacementId: String? = null,
     val placements: Map<String, PlacementConfig> = emptyMap(),
-    /** Preload açıkken önceden yüklenecek placement listesi. Boşsa sadece default placement yüklenir. */
-    val preloadPlacementIds: List<String> = emptyList()
+    /**
+     * Açılışta (init sonrası) önceden yüklenecek placement listesi. Boşsa sadece
+     * default placement yüklenir. Buradaki bir placement [PlacementConfig.preload]
+     * `false` ise yine de yüklenmez.
+     *
+     * Not: Bu liste yalnızca açılıştaki ilk yüklemeyi belirler; gösterim sonrası
+     * otomatik yeniden yükleme [PlacementConfig.preload] bayrağına bakar.
+     */
+    val initialPreloadPlacementIds: List<String> = emptyList()
 ) {
     fun placement(id: String?): PlacementConfig? {
         val pid = id ?: defaultPlacementId ?: return null
         return placements[pid]
     }
 
-    fun effectivePreloadPlacements(): List<PlacementConfig> {
-        val ids = if (preloadPlacementIds.isNotEmpty()) preloadPlacementIds
+    /** Bu placement için otomatik (açılış + gösterim sonrası) preload açık mı? */
+    fun autoPreloads(placement: PlacementConfig): Boolean =
+        preload && placement.enabled && placement.preload
+
+    /** Açılışta yüklenecek placement'lar. */
+    fun initialPreloadPlacements(): List<PlacementConfig> {
+        val ids = if (initialPreloadPlacementIds.isNotEmpty()) initialPreloadPlacementIds
         else listOfNotNull(defaultPlacementId)
-        return ids.mapNotNull { placements[it] }.filter { it.enabled }
+        return ids.mapNotNull { placements[it] }.filter { autoPreloads(it) }
     }
 }
 
@@ -152,7 +171,13 @@ class AdsConfig private constructor(
         var enabled: Boolean = true
         var preload: Boolean = false
         var defaultPlacement: String? = null
-        var preloadPlacements: List<String> = emptyList()
+
+        /**
+         * Açılışta preload edilecek placement id'leri. Boş bırakılırsa sadece
+         * [defaultPlacement] yüklenir. Gösterim sonrası yeniden yüklemeyi değil,
+         * yalnızca ilk yüklemeyi etkiler.
+         */
+        var initialPreloadPlacements: List<String> = emptyList()
 
         /** [AdNetwork] listesi olarak sıra. */
         var networkOrder: List<AdNetwork> = listOf(AdNetwork.ADMOB, AdNetwork.APPLOVIN)
@@ -166,17 +191,22 @@ class AdsConfig private constructor(
 
         private val placements = mutableMapOf<String, PlacementConfig>()
 
+        /**
+         * @param preload `false` ise bu placement otomatik preload'a hiç katılmaz
+         *   (ne açılışta ne de gösterim sonrası); sadece manuel yüklenir.
+         */
         fun placement(
             id: String,
             admobAdUnitId: String? = null,
             applovinAdUnitId: String? = null,
-            enabled: Boolean = true
+            enabled: Boolean = true,
+            preload: Boolean = true
         ) {
             val map = buildMap {
                 admobAdUnitId?.let { put(AdNetwork.ADMOB, it) }
                 applovinAdUnitId?.let { put(AdNetwork.APPLOVIN, it) }
             }
-            placements[id] = PlacementConfig(id, map, enabled)
+            placements[id] = PlacementConfig(id, map, enabled, preload)
             if (defaultPlacement == null) defaultPlacement = id
         }
 
@@ -187,7 +217,7 @@ class AdsConfig private constructor(
             preload = preload,
             defaultPlacementId = defaultPlacement,
             placements = placements.toMap(),
-            preloadPlacementIds = preloadPlacements
+            initialPreloadPlacementIds = initialPreloadPlacements
         )
     }
 }

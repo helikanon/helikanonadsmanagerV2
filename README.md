@@ -81,8 +81,11 @@ val config = AdsConfig.build {
             applovinAdUnitId = "MAX_AD_UNIT_ID")
         placement("inter_gameover",
             admobAdUnitId = "ca-app-pub-.../...")
+        placement("inter_levelup",
+            admobAdUnitId = "ca-app-pub-.../...",
+            preload = false)                         // hiç otomatik yüklenmez, sadece manuel
         defaultPlacement = "inter_default"           // placement verilmezse bu kullanılır
-        // preloadPlacements = listOf("inter_default", "inter_gameover") // boşsa sadece default preload edilir
+        initialPreloadPlacements = listOf("inter_default")  // açılışta yüklenecekler; boşsa sadece default
     }
 
     rewarded {
@@ -233,8 +236,10 @@ JSON şeması (tam örnek `AdsConfigJsonParser` dokümantasyonunda):
     "preload": true,
     "networkOrder": "admob,applovin",
     "defaultPlacement": "inter_default",
+    "initialPreloadPlacements": ["inter_default"],
     "placements": {
-      "inter_default": { "admob": "ca-app-pub-.../...", "applovin": "MAX_ID" }
+      "inter_default": { "admob": "ca-app-pub-.../...", "applovin": "MAX_ID" },
+      "inter_levelup": { "admob": "ca-app-pub-.../...", "preload": false }
     }
   }
 }
@@ -257,7 +262,7 @@ AdsManager.setRewardedSsvOptions(userId, customData)  // AdMob rewarded SSV
 
 - **Waterfall:** Format bazlı `networkOrder` sırasıyla denenir. Bir network başarılı yüklerse diğerleri denenmez; fail/timeout olursa sıradakine geçilir.
 - **Placement bazlı saklama:** Her placement için ayrı reklam tutulur. `load/show`'da placement verilmezse `defaultPlacement` kullanılır.
-- **Preload:** `preload = true` ise init sonrası ve her gösterimden sonra otomatik yüklenir. Tüm waterfall fail olursa exponential backoff (8s → 16s → ... → 64s) ile otomatik retry.
+- **Preload (3 kademeli):** Format `preload = true` ana anahtardır. `initialPreloadPlacements` açılışta hangi placement'ların yükleneceğini belirler (boşsa sadece `defaultPlacement`). Placement bazlı `preload = false` ise o placement otomatik preload'a hiç katılmaz — ne açılışta ne gösterim sonrası — yalnızca `load...()` ile veya hazır değilken yapılan `show...()` çağrısıyla yüklenir. Otomatik preload açık olan placement'larda tüm waterfall fail olursa exponential backoff (8s → 16s → ... → 64s) ile retry yapılır.
 - **Expire:** Yüklenen reklam `adTtlMinutes` (varsayılan 55 dk) sonra geçersiz sayılır ve çöpe atılır; preload açıksa yenisi yüklenir.
 - **Tek fullscreen kuralı:** Herhangi bir fullscreen reklam açıkken ikinci bir `show` çağrısı reddedilir.
 - **App open koruması:** Interstitial/rewarded açıkken app open gösterilmez; son inter/rewarded gösteriminden `appOpenMinGapSec` geçmeden app open gösterilmez.

@@ -38,9 +38,11 @@ import org.json.JSONObject
  *     "preload": true,
  *     "networkOrder": "admob,applovin",
  *     "defaultPlacement": "inter_default",
+ *     "initialPreloadPlacements": ["inter_default"],
  *     "placements": {
  *       "inter_default": { "admob": "ca-app-pub-.../...", "applovin": "MAX_AD_UNIT" },
- *       "inter_gameover": { "admob": "ca-app-pub-.../..." }
+ *       "inter_gameover": { "admob": "ca-app-pub-.../..." },
+ *       "inter_levelup": { "admob": "ca-app-pub-.../...", "preload": false }
  *     }
  *   },
  *   "rewarded":  { "...": "..." },
@@ -49,6 +51,13 @@ import org.json.JSONObject
  * }
  * ```
  * `networkOrder` string ("admob,applovin") veya dizi (["admob","applovin"]) olabilir.
+ *
+ * Preload kontrolü üç kademelidir:
+ * - Format `preload`: o format için otomatik yükleme ana anahtarı.
+ * - `initialPreloadPlacements`: açılışta hangi placement'ların yükleneceği. Boşsa
+ *   sadece `defaultPlacement` yüklenir.
+ * - Placement `preload` (varsayılan `true`): `false` ise o placement otomatik preload'a
+ *   hiç katılmaz — ne açılışta ne gösterim sonrası; yalnızca manuel yüklenir.
  */
 object AdsConfigJsonParser {
 
@@ -122,13 +131,14 @@ object AdsConfigJsonParser {
                         id = pid,
                         admobAdUnitId = p.optStringOrNull("admob"),
                         applovinAdUnitId = p.optStringOrNull("applovin") ?: p.optStringOrNull("max"),
-                        enabled = p.optBoolean("enabled", true)
+                        enabled = p.optBoolean("enabled", true),
+                        preload = p.optBoolean("preload", true)
                     )
                 }
             }
             // default placement en son set edilir ki placement() çağrıları ezmesin
             obj.optStringOrNull("defaultPlacement")?.let { defaultPlacement = it }
-            preloadPlacements = obj.optStringList("preloadPlacements")
+            initialPreloadPlacements = obj.optStringList("initialPreloadPlacements")
         }
     }
 
