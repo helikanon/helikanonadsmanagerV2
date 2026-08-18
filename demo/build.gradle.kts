@@ -19,6 +19,11 @@ android {
             isMinifyEnabled = false
         }
     }
+
+    // Örnek kodda testMode = BuildConfig.DEBUG kullanılıyor (AGP 8'den beri opt-in).
+    buildFeatures {
+        buildConfig = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
