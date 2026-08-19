@@ -1,12 +1,14 @@
 package com.helikanon.adsmanager.adapter
 
-import android.app.Activity
+import android.content.Context
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import com.applovin.mediation.MaxAd
 import com.applovin.mediation.MaxAdFormat
 import com.applovin.mediation.MaxAdViewAdListener
 import com.applovin.mediation.MaxError
+import com.applovin.mediation.MaxAdViewConfiguration
 import com.applovin.mediation.ads.MaxAdView
 import com.google.android.gms.ads.AdListener
 import com.google.android.gms.ads.AdRequest
@@ -19,7 +21,11 @@ import com.helikanon.adsmanager.config.BannerType
 import com.helikanon.adsmanager.core.EventCenter
 import com.helikanon.adsmanager.listener.AdInfo
 
-/** Yüklenmiş bir banner'ı network'ten bağımsız temsil eder. */
+/**
+ * Yüklenmekte olan veya yüklenmiş bir banner'ı network'ten bağımsız temsil eder.
+ * [destroy] bekleyen load isteğini de iptal eder (MaxAdView.destroy / AdView.destroy);
+ * bu sayede timeout'ta in-flight istek askıda bırakılmaz.
+ */
 internal interface BannerHandle {
     val view: View
     val network: AdNetwork
@@ -33,30 +39,42 @@ internal interface BannerLoadCallback {
     fun onFailed(error: String)
 }
 
+private fun adViewLayoutParams(width: Int, height: Int): FrameLayout.LayoutParams =
+    FrameLayout.LayoutParams(width, height, android.view.Gravity.CENTER_HORIZONTAL)
+
 // ================================================================== AdMob
 
 internal object AdMobBannerAdapter {
 
+    /**
+     * AdView'ı oluşturur, [host]'a INVISIBLE olarak ekler ve yüklemeyi başlatır.
+     * Handle SENKRON döner; [callback] yalnızca sonucu bildirir. Timeout'ta çağıran
+     * taraf handle.destroy() ile bekleyen isteği iptal etmelidir.
+     */
     fun load(
-        activity: Activity,
+        context: Context,
+        host: ViewGroup,
         type: BannerType,
         placementId: String,
         adUnitId: String,
         callback: BannerLoadCallback
-    ) {
-        val adView = AdView(activity)
+    ): BannerHandle {
+        val adView = AdView(context)
         adView.adUnitId = adUnitId
-        adView.setAdSize(resolveSize(activity, type))
+        adView.setAdSize(resolveSize(context, type))
         adView.setOnPaidEventListener { adValue ->
             AdMobFullscreenAdapter.emitRevenue(AdFormat.BANNER, placementId, adUnitId, adValue)
         }
 
         val handle = object : BannerHandle {
+            private var destroyed = false
             override val view: View = adView
             override val network = AdNetwork.ADMOB
             override fun pause() = adView.pause()
             override fun resume() = adView.resume()
             override fun destroy() {
+                if (destroyed) return
+                destroyed = true
                 (adView.parent as? ViewGroup)?.removeView(adView)
                 adView.destroy()
             }
@@ -89,17 +107,25 @@ internal object AdMobBannerAdapter {
                 }
             }
         }
+
+        // Attach-önce-load: detached view'da loadAd bazı network'lerde askıda kalabiliyor.
+        adView.visibility = View.INVISIBLE
+        host.addView(
+            adView,
+            adViewLayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        )
         adView.loadAd(AdRequest.Builder().build())
+        return handle
     }
 
-    private fun resolveSize(activity: Activity, type: BannerType): AdSize = when (type) {
+    private fun resolveSize(context: Context, type: BannerType): AdSize = when (type) {
         BannerType.STANDARD -> AdSize.BANNER
         BannerType.MREC -> AdSize.MEDIUM_RECTANGLE
         BannerType.ADAPTIVE -> {
-            val metrics = activity.resources.displayMetrics
+            val metrics = context.resources.displayMetrics
             val widthDp = (metrics.widthPixels / metrics.density).toInt()
             @Suppress("DEPRECATION")
-            AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, widthDp)
+            AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(context, widthDp)
         }
     }
 }
@@ -108,41 +134,44 @@ internal object AdMobBannerAdapter {
 
 internal object MaxBannerAdapter {
 
+    /**
+     * MaxAdView'ı oluşturur, [host]'a INVISIBLE olarak ekler ve yüklemeyi başlatır.
+     * Handle SENKRON döner; timeout'ta handle.destroy() bekleyen loadAd isteğini iptal
+     * eder — aksi halde MAX aynı ad unit'in sonraki isteklerini serileştirip kilitler.
+     */
     fun load(
-        activity: Activity,
+        context: Context,
+        host: ViewGroup,
         type: BannerType,
         placementId: String,
         adUnitId: String,
         callback: BannerLoadCallback
-    ) {
-        val density = activity.resources.displayMetrics.density
-        // MAX 13.x: MaxAdView yalnızca ad unit id (+ format) ile oluşturulur.
+    ): BannerHandle {
+        val density = context.resources.displayMetrics.density
+        // MAX 13.x: adaptive banner MaxAdViewConfiguration ile bildirilir;
+        // "adaptive_banner" extra parametresi 13.6+ sürümlerde config hatası logluyor.
         val adView: MaxAdView = when (type) {
             BannerType.MREC -> MaxAdView(adUnitId, MaxAdFormat.MREC)
-            else -> MaxAdView(adUnitId)
+            BannerType.ADAPTIVE -> MaxAdView(
+                adUnitId,
+                MaxAdViewConfiguration.builder()
+                    .setAdaptiveType(MaxAdViewConfiguration.AdaptiveType.ANCHORED)
+                    .build()
+            )
+            BannerType.STANDARD -> MaxAdView(adUnitId)
         }
 
         // Boyutlar
-        when (type) {
-            BannerType.MREC -> {
-                adView.layoutParams = ViewGroup.LayoutParams(
-                    (300 * density).toInt(), (250 * density).toInt()
-                )
-            }
+        val layoutParams = when (type) {
+            BannerType.MREC -> adViewLayoutParams((300 * density).toInt(), (250 * density).toInt())
 
             BannerType.ADAPTIVE -> {
-                adView.setExtraParameter("adaptive_banner", "true")
-                val heightDp = MaxAdFormat.BANNER.getAdaptiveSize(activity).height
-                adView.layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, (heightDp * density).toInt()
-                )
+                val heightDp = MaxAdFormat.BANNER.getAdaptiveSize(context).height
+                adViewLayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (heightDp * density).toInt())
             }
 
-            BannerType.STANDARD -> {
-                adView.layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, (50 * density).toInt()
-                )
-            }
+            BannerType.STANDARD ->
+                adViewLayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (50 * density).toInt())
         }
 
         adView.setRevenueListener { maxAd ->
@@ -150,11 +179,14 @@ internal object MaxBannerAdapter {
         }
 
         val handle = object : BannerHandle {
+            private var destroyed = false
             override val view: View = adView
             override val network = AdNetwork.APPLOVIN
             override fun pause() = adView.stopAutoRefresh()
             override fun resume() = adView.startAutoRefresh()
             override fun destroy() {
+                if (destroyed) return
+                destroyed = true
                 (adView.parent as? ViewGroup)?.removeView(adView)
                 adView.destroy()
             }
@@ -176,7 +208,6 @@ internal object MaxBannerAdapter {
             override fun onAdLoadFailed(adUnitId: String, error: MaxError) {
                 if (firstResult) {
                     firstResult = false
-                    adView.destroy()
                     callback.onFailed(error.message ?: "MAX banner load error ${error.code}")
                 }
             }
@@ -193,6 +224,12 @@ internal object MaxBannerAdapter {
                 }
             }
         })
+
+        // AppLovin'in önerdiği akış: view'ı hierarchy'e ekledikten SONRA loadAd çağır.
+        // Detached view'da loadAd MAX'te ertelenmiş/askıda yüklemelere yol açabiliyor.
+        adView.visibility = View.INVISIBLE
+        host.addView(adView, layoutParams)
         adView.loadAd()
+        return handle
     }
 }

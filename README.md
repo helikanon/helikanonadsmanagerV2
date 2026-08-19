@@ -138,6 +138,8 @@ val config = AdsConfig.build {
     sessionMaxInterstitials = 0          // 0 = limitsiz
     firstInterstitialDelaySec = 0        // açılıştan ilk interstitial'a bekleme
     loadTimeoutSec = 20                  // network başına load timeout
+    maxBannerRetryCount = 5              // banner otomatik retry üst sınırı (0 = limitsiz)
+    reuseBannersAcrossActivities = false // true: banner'lar activity'ler arası paylaşılır
     testMode = false
     debugLogging = false
     umpConsentEnabled = true             // GDPR/UMP akışını kütüphane yönetsin
@@ -254,7 +256,37 @@ val controller = AdsManager.loadBanner(
 )
 // Activity ComponentActivity/AppCompatActivity ise pause/resume/destroy otomatik.
 // Değilse: controller?.pause() / resume() / destroy()
+
+AdsManager.destroyBanner()                   // tüm banner'ları destroy eder
+AdsManager.destroyBanner("banner_default")   // sadece bu placement'ı
 ```
+
+Davranış:
+
+- **Yeniden kullanım (reattach):** Reklam, kütüphanenin yarattığı kalıcı bir host view'ına
+  yüklenir ve controller (activity, placement) bazında cache'lenir. Aynı activity +
+  placement + type için tekrar `loadBanner` çağrıldığında **yeni istek atılmaz**; yüklü
+  reklam yeni container'a taşınır ve anında görünür (tab/fragment geçişlerinde 10-20 sn
+  boş alan kalmaz). Tip değiştiyse (örn. ADAPTIVE → MREC) eski controller destroy edilip
+  yenisi yüklenir.
+- **Görünürlük:** Host window'dan ayrılınca auto-refresh otomatik durur, geri eklenince
+  devam eder. Görünmeyen banner refresh etmez.
+- **Timeout:** Bir network `loadTimeoutSec` içinde cevap vermezse yüklenmekte olan reklam
+  view'ı destroy edilip (bekleyen istek iptal edilir) sıradaki network'e geçilir.
+- **Retry sınırı:** Waterfall tamamen fail olursa exponential backoff ile en fazla
+  `maxBannerRetryCount` (varsayılan 5, 0 = limitsiz) otomatik retry yapılır. Sınıra
+  ulaşınca durur; bir sonraki `loadBanner` çağrısı sayacı sıfırlayıp yeniden dener.
+- **Temizlik:** Activity destroy olduğunda controller ve cache girdisi otomatik temizlenir.
+  `updateConfig` ile banner (veya placement) kapatılırsa cache'teki controller'lar destroy
+  edilir ve container'lar boşalır.
+
+**Activity'ler arası paylaşım (opsiyonel):** Config'de `reuseBannersAcrossActivities = true`
+(JSON anahtarı: `"reuseBannersAcrossActivities"`) verilirse banner host'u ve reklam view'ları
+application context ile yaratılır, cache activity'den bağımsız placement bazlı tutulur.
+Böylece Activity A'da yüklenen banner Activity B'de (örn. ayarlar ekranı) anında gösterilir;
+activity destroy'da reklam destroy edilmez, yalnızca ölen activity'nin view ağacından ayrılır.
+Trade-off: AppLovin, MaxAdView için activity context önerir; bu yüzden varsayılan `false`'tur.
+Bu moddaki banner'ları `AdsManager.destroyBanner()` ile elle temizleyebilirsiniz.
 
 ### Listener'lar
 
@@ -333,6 +365,7 @@ AdsManager.setRewardedSsvOptions(userId, customData)  // AdMob rewarded SSV
 - **Waterfall:** Format bazlı `networkOrder` sırasıyla denenir. Bir network başarılı yüklerse diğerleri denenmez; fail/timeout olursa sıradakine geçilir.
 - **Placement bazlı saklama:** Her placement için ayrı reklam tutulur. `load/show`'da placement verilmezse `defaultPlacement` kullanılır.
 - **Preload (3 kademeli):** Format `preload = true` ana anahtardır. `initialPreloadPlacements` açılışta hangi placement'ların yükleneceğini belirler (boşsa sadece `defaultPlacement`). Placement bazlı `preload = false` ise o placement otomatik preload'a hiç katılmaz — ne açılışta ne gösterim sonrası — yalnızca `load...()` ile veya hazır değilken yapılan `show...()` çağrısıyla yüklenir. Otomatik preload açık olan placement'larda tüm waterfall fail olursa exponential backoff (8s → 16s → ... → 64s) ile retry yapılır.
+- **Banner reuse & retry sınırı:** Banner'lar (activity, placement) bazında cache'lenir; aynı parametrelerle tekrar `loadBanner` yeni istek atmaz, yüklü reklamı yeni container'a taşır. Banner retry'ları `maxBannerRetryCount` ile sınırlıdır (detaylar Banner bölümünde).
 - **Expire:** Yüklenen reklam `adTtlMinutes` (varsayılan 55 dk) sonra geçersiz sayılır ve çöpe atılır; preload açıksa yenisi yüklenir.
 - **Tek fullscreen kuralı:** Herhangi bir fullscreen reklam açıkken ikinci bir `show` çağrısı reddedilir.
 - **App open koruması:** Interstitial/rewarded açıkken app open gösterilmez; son inter/rewarded gösteriminden `appOpenMinGapSec` geçmeden app open gösterilmez.
@@ -356,5 +389,5 @@ AdsManager.setRewardedSsvOptions(userId, customData)  // AdMob rewarded SSV
 - AdMob **legacy** SDK (`play-services-ads:25.3.0`) kullanılır; mediation özelliği kullanılmaz (pure AdMob). 25.3.0 seçildi çünkü AppLovin `google-adapter:25.3.0.0` bu sürümle sertifikalı — GMA'yı yükseltirken google-adapter'ı da aynı majöre yükseltin.
 - Tüm MAX adaptör sürümleri `adsmanager/build.gradle.kts` içinde sabitlenmiştir (kütüphane JitPack'ten yayınlandığı için tekrarlanabilir build şart). Güncel adaptörlere geçmek için o bloğu düzenleyip yeni bir sürüm yayınlayın.
 - **Aynı MAX rewarded ad unit id'sini birden fazla placement'ta kullanmayın** — `MaxRewardedAd` ad unit başına singleton'dır; kütüphane gösterim olaylarını doğru wrapper'a yönlendirir ama aynı anda iki placement'a aynı unit ile load etmek kaçınılması gereken bir kullanım.
-- MAX adaptive banner için legacy `adaptive_banner` extra parametresi kullanılır; AppLovin bunu 13.x'te hâlâ destekler. İleride kaldırılırsa `MaxAdViewConfiguration.setAdaptiveType(ANCHORED)` API'sine geçin.
+- MAX adaptive banner, MAX 13.x'in önerdiği `MaxAdViewConfiguration.builder().setAdaptiveType(ANCHORED)` API'siyle oluşturulur (legacy `adaptive_banner` extra parametresi 13.6+ sürümlerde config hatası logluyordu, kullanılmaz).
 - Bu kod cloud ortamında derlenemedi (Google Maven erişimi yok). İlk `gradle sync` / build sırasında ufak derleme düzeltmeleri gerekebilir; hata çıktısını paylaşmanız yeterli.

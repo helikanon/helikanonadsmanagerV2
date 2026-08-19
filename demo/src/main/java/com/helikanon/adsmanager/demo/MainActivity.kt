@@ -60,7 +60,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadBanner(container: FrameLayout, type: BannerType) {
-        bannerController?.destroy()
+        // Aynı tip için tekrar çağrıda cache'teki banner anında geri gelir (yeni istek yok);
+        // tip değiştiyse kütüphane eski controller'ı kendisi destroy edip yenisini yükler.
         bannerController = AdsManager.loadBanner(this, container, type)
         if (bannerController == null) toast("Banner yüklenemedi (config kontrol edin)")
     }

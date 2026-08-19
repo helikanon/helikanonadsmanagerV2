@@ -9,6 +9,7 @@ import com.applovin.sdk.AppLovinSdk
 import com.google.android.gms.ads.MobileAds
 import com.helikanon.adsmanager.appopen.AppOpenAutoShow
 import com.helikanon.adsmanager.banner.BannerAdController
+import com.helikanon.adsmanager.banner.BannerCache
 import com.helikanon.adsmanager.banner.BannerLoader
 import com.helikanon.adsmanager.config.AdFormat
 import com.helikanon.adsmanager.config.AdsConfig
@@ -166,6 +167,8 @@ object AdsManager {
         this.config = newConfig
         AdsLogger.debugEnabled = newConfig.debugLogging
         AdsLogger.i("Config updated")
+        // Yeni config'te kapatılan banner'lar cache'ten destroy edilir (container'lar boşalır)
+        MainThread.run { BannerCache.applyConfig(newConfig) }
         if (!newConfig.adsEnabled) return
         if (sdksStarted) {
             preloadAll()
@@ -369,6 +372,11 @@ object AdsManager {
     /**
      * Banner yükler ve [container] içine ekler. Waterfall sırasına göre network denenir.
      *
+     * Aynı activity + placement + type için canlı bir controller varsa yeni istek atılmaz;
+     * yüklü reklamın host'u yeni container'a taşınır ve mevcut controller döner (tab/fragment
+     * geçişlerinde anında gösterim). Tip değiştiyse eski controller destroy edilip yenisi
+     * yüklenir. `reuseBannersAcrossActivities = true` ise cache activity'den bağımsızdır.
+     *
      * @param type STANDARD (320x50), ADAPTIVE (önerilen) veya MREC (300x250)
      * @return Banner'ı yönetmek için controller; config/placement geçersizse null.
      *         Activity bir LifecycleOwner ise pause/resume/destroy otomatiktir.
@@ -393,15 +401,57 @@ object AdsManager {
             return null
         }
 
-        val controller = BannerAdController(container, placement.id, type)
-        (activity as? LifecycleOwner)?.let { controller.attachLifecycle(it) }
+        val shared = cfg.reuseBannersAcrossActivities
+        val loadContext: Context = if (shared) activity.applicationContext else activity
+        (activity.applicationContext as? Application)?.let { BannerCache.ensureLifecycleHook(it) }
 
+        BannerCache.get(activity, placement.id, shared)?.let { cached ->
+            if (cached.type == type) {
+                AdsLogger.d("Reusing cached banner controller for '${placement.id}' (no new request)")
+                cached.moveToContainer(container)
+                (activity as? LifecycleOwner)?.let { cached.bindToLifecycle(it, destroyWithActivity = !shared) }
+                // Retry sınırına takılıp boş kalmışsa: sayacı sıfırla, yeniden başlat
+                if (!cached.isAdLoaded && !cached.isLoadActive) {
+                    RetryScheduler.cancel(AdFormat.BANNER, placement.id)
+                    cached.isLoadActive = true
+                    InitManager.runWhenReady {
+                        if (!cached.isDestroyed) {
+                            BannerLoader.load(loadContext, cached, type, cfg, formatConfig, placement)
+                        }
+                    }
+                }
+                return cached
+            }
+            // Tip değişti (ör. ADAPTIVE -> MREC): eskisini at, yenisini yükle
+            AdsLogger.d("Banner type changed for '${placement.id}' (${cached.type} -> $type); destroying old controller")
+            cached.destroy()
+        }
+
+        val controller = BannerAdController(loadContext, placement.id, type)
+        (activity as? LifecycleOwner)?.let { controller.bindToLifecycle(it, destroyWithActivity = !shared) }
+        BannerCache.put(activity, controller, shared)
+        controller.moveToContainer(container)
+
+        // Yeni loadBanner çağrısı retry sayacını sıfırlar
+        RetryScheduler.cancel(AdFormat.BANNER, placement.id)
+        controller.isLoadActive = true
         InitManager.runWhenReady {
             if (!controller.isDestroyed) {
-                BannerLoader.load(activity, controller, type, cfg, formatConfig, placement)
+                BannerLoader.load(loadContext, controller, type, cfg, formatConfig, placement)
             }
         }
         return controller
+    }
+
+    /**
+     * Cache'teki banner controller'larını destroy eder ve container'larını boşaltır.
+     *
+     * @param placementId null ise TÜM banner'lar destroy edilir; değilse yalnızca o placement.
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun destroyBanner(placementId: String? = null) {
+        MainThread.run { BannerCache.destroy(placementId) }
     }
 
     // ================================================================ debug

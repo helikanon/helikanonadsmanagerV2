@@ -49,6 +49,13 @@ class DemoApplication : Application() {
             retryBaseDelaySec = 8
             /** Retry gecikmesinin tavanı. (varsayılan: 64) */
             retryMaxDelaySec = 64
+            /** Banner waterfall'u tamamen fail olduğunda maksimum otomatik retry; 0 = limitsiz.
+             *  Sınıra ulaşınca durur, sonraki loadBanner çağrısı sayacı sıfırlar. (varsayılan: 5) */
+            maxBannerRetryCount = 5
+            /** true: banner'lar application context ile yaratılır ve activity'ler arası
+             *  paylaşılır (Activity B'de anında gösterim). AppLovin MaxAdView için activity
+             *  context önerdiğinden varsayılan false. (varsayılan: false) */
+            reuseBannersAcrossActivities = false
             /** Yüklü fullscreen reklamın geçerlilik süresi (dakika); aşılırsa yeniden yüklenir. (varsayılan: 55) */
             adTtlMinutes = 55
 
@@ -241,6 +248,8 @@ class DemoApplication : Application() {
           "loadTimeoutSec": 20,
           "retryBaseDelaySec": 8,
           "retryMaxDelaySec": 64,
+          "maxBannerRetryCount": 5,
+          "reuseBannersAcrossActivities": false,
           "adTtlMinutes": 55,
 
           "interstitial": {

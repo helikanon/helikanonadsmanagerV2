@@ -78,6 +78,8 @@ object AdsConfigJsonParser {
             loadTimeoutSec = root.optInt("loadTimeoutSec", 20)
             retryBaseDelaySec = root.optInt("retryBaseDelaySec", 8)
             retryMaxDelaySec = root.optInt("retryMaxDelaySec", 64)
+            maxBannerRetryCount = root.optInt("maxBannerRetryCount", 5)
+            reuseBannersAcrossActivities = root.optBoolean("reuseBannersAcrossActivities", false)
             adTtlMinutes = root.optInt("adTtlMinutes", 55)
             debugLogging = root.optBoolean("debugLogging", false)
             umpConsentEnabled = root.optBoolean("umpConsentEnabled", false)

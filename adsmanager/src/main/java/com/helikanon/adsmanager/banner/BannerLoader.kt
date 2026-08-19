@@ -1,6 +1,7 @@
 package com.helikanon.adsmanager.banner
 
 import android.app.Activity
+import android.content.Context
 import com.helikanon.adsmanager.adapter.AdMobBannerAdapter
 import com.helikanon.adsmanager.adapter.BannerHandle
 import com.helikanon.adsmanager.adapter.BannerLoadCallback
@@ -22,7 +23,7 @@ import java.lang.ref.WeakReference
 internal object BannerLoader {
 
     fun load(
-        activity: Activity,
+        context: Context,
         controller: BannerAdController,
         type: BannerType,
         config: AdsConfig,
@@ -34,18 +35,20 @@ internal object BannerLoader {
             .mapNotNull { network -> placement.adUnitIdFor(network)?.let { network to it } }
 
         if (candidates.isEmpty()) {
+            controller.isLoadActive = false
             EventCenter.event {
                 it.onAdLoadFailed(AdFormat.BANNER, placement.id, "No banner ad unit configured for '${placement.id}'")
             }
             return
         }
 
-        val activityRef = WeakReference(activity)
-        attemptAt(activityRef, controller, type, config, formatConfig, placement, candidates, 0, mutableListOf())
+        controller.isLoadActive = true
+        val contextRef = WeakReference(context)
+        attemptAt(contextRef, controller, type, config, formatConfig, placement, candidates, 0, mutableListOf())
     }
 
     private fun attemptAt(
-        activityRef: WeakReference<Activity>,
+        contextRef: WeakReference<Context>,
         controller: BannerAdController,
         type: BannerType,
         config: AdsConfig,
@@ -55,9 +58,11 @@ internal object BannerLoader {
         index: Int,
         errors: MutableList<String>
     ) {
-        val activity = activityRef.get()
-        if (activity == null || activity.isFinishing || activity.isDestroyed || controller.isDestroyed) {
-            AdsLogger.d("Banner load cancelled for '${placement.id}' (activity/controller gone)")
+        val context = contextRef.get()
+        val activityGone = (context as? Activity)?.let { it.isFinishing || it.isDestroyed } ?: false
+        if (context == null || activityGone || controller.isDestroyed) {
+            AdsLogger.d("Banner load cancelled for '${placement.id}' (context/controller gone)")
+            controller.isLoadActive = false
             return
         }
 
@@ -65,12 +70,15 @@ internal object BannerLoader {
             val error = errors.joinToString(" | ")
             AdsLogger.w("Banner waterfall exhausted for '${placement.id}': $error")
             EventCenter.event { it.onAdLoadFailed(AdFormat.BANNER, placement.id, error) }
-            // Otomatik retry: controller yaşıyorsa backoff ile tekrar dene
-            RetryScheduler.scheduleRetry(
-                AdFormat.BANNER, placement.id, config.retryBaseDelaySec, config.retryMaxDelaySec
+            // Otomatik retry: backoff ile, maxBannerRetryCount sınırına kadar tekrar dene.
+            // Sınıra ulaşılırsa döngü durur; bir sonraki loadBanner çağrısı sayacı sıfırlar.
+            val scheduled = RetryScheduler.scheduleRetry(
+                AdFormat.BANNER, placement.id, config.retryBaseDelaySec, config.retryMaxDelaySec,
+                maxAttempts = config.maxBannerRetryCount
             ) {
-                attemptAt(activityRef, controller, type, config, formatConfig, placement, candidates, 0, mutableListOf())
+                attemptAt(contextRef, controller, type, config, formatConfig, placement, candidates, 0, mutableListOf())
             }
+            if (!scheduled) controller.isLoadActive = false
             return
         }
 
@@ -78,11 +86,23 @@ internal object BannerLoader {
         AdsLogger.d("Banner waterfall: loading '${placement.id}' from $network (step ${index + 1}/${candidates.size})")
 
         var settled = false
+        var inFlight: BannerHandle? = null
+
+        fun clearInFlight() {
+            if (controller.inFlight === inFlight) controller.inFlight = null
+            inFlight = null
+        }
+
         val timeoutRunnable = Runnable {
             if (!settled) {
                 settled = true
+                // KRİTİK: yüklenmekte olan view'ı MUTLAKA destroy et. MaxAdView.destroy()
+                // bekleyen loadAd isteğini iptal eder; aksi halde MAX aynı ad unit'in
+                // sonraki tüm isteklerini bu askıdaki isteğin arkasında serileştirir.
+                inFlight?.destroy()
+                clearInFlight()
                 errors.add("$network banner load timeout (${config.loadTimeoutSec}s)")
-                attemptAt(activityRef, controller, type, config, formatConfig, placement, candidates, index + 1, errors)
+                attemptAt(contextRef, controller, type, config, formatConfig, placement, candidates, index + 1, errors)
             }
         }
         MainThread.handler.postDelayed(timeoutRunnable, config.loadTimeoutSec * 1000L)
@@ -91,13 +111,16 @@ internal object BannerLoader {
             override fun onLoaded(handle: BannerHandle) {
                 MainThread.run {
                     if (settled) {
+                        // Timeout sonrası geç gelen sonuç: view zaten (veya şimdi) destroy edilir.
                         handle.destroy()
                         return@run
                     }
                     settled = true
                     MainThread.handler.removeCallbacks(timeoutRunnable)
+                    clearInFlight()
+                    controller.isLoadActive = false
                     RetryScheduler.onLoadSuccess(AdFormat.BANNER, placement.id)
-                    controller.attach(handle)
+                    controller.onAdLoaded(handle)
                     EventCenter.event {
                         it.onAdLoaded(AdInfo(AdFormat.BANNER, placement.id, network, adUnitId))
                     }
@@ -109,16 +132,29 @@ internal object BannerLoader {
                     if (settled) return@run
                     settled = true
                     MainThread.handler.removeCallbacks(timeoutRunnable)
+                    inFlight?.destroy()
+                    clearInFlight()
                     errors.add("$network: $error")
-                    attemptAt(activityRef, controller, type, config, formatConfig, placement, candidates, index + 1, errors)
+                    attemptAt(contextRef, controller, type, config, formatConfig, placement, candidates, index + 1, errors)
                 }
             }
         }
 
         try {
-            when (network) {
-                AdNetwork.ADMOB -> AdMobBannerAdapter.load(activity, type, placement.id, adUnitId, callback)
-                AdNetwork.APPLOVIN -> MaxBannerAdapter.load(activity, type, placement.id, adUnitId, callback)
+            // Adapter, view'ı controller.host'a INVISIBLE ekleyip yüklemeyi başlatır ve
+            // handle'ı senkron döndürür; böylece timeout dalında iptal edilebilir.
+            val handle = when (network) {
+                AdNetwork.ADMOB ->
+                    AdMobBannerAdapter.load(context, controller.host, type, placement.id, adUnitId, callback)
+                AdNetwork.APPLOVIN ->
+                    MaxBannerAdapter.load(context, controller.host, type, placement.id, adUnitId, callback)
+            }
+            if (!settled) {
+                inFlight = handle
+                controller.inFlight = handle
+            } else if (controller.handle !== handle) {
+                // Callback load() dönmeden senkron ateşlendi (ör. anlık hata): view'ı bırakma.
+                handle.destroy()
             }
         } catch (t: Throwable) {
             callback.onFailed("$network banner adapter threw: ${t.message}")

@@ -81,6 +81,18 @@ class AdsConfig private constructor(
     val retryBaseDelaySec: Int,
     /** Otomatik retry maksimum gecikmesi (saniye). */
     val retryMaxDelaySec: Int,
+    /**
+     * Banner waterfall'u tamamen fail olduğunda yapılacak maksimum otomatik retry sayısı.
+     * Sınıra ulaşınca retry durur; bir sonraki loadBanner çağrısı sayacı sıfırlar. 0 = limitsiz.
+     */
+    val maxBannerRetryCount: Int,
+    /**
+     * true ise banner host'u ve reklam view'ları application context ile yaratılır ve
+     * cache activity'den bağımsız placement bazlı tutulur; bir Activity'de yüklenen banner
+     * başka bir Activity'de anında gösterilebilir. AppLovin MaxAdView için activity
+     * context önerdiğinden varsayılan false'tur.
+     */
+    val reuseBannersAcrossActivities: Boolean,
     /** Yüklenen fullscreen reklamın geçerlilik süresi (dakika). Aşılırsa expire sayılır ve yeniden yüklenir. */
     val adTtlMinutes: Int,
     /** Test modu: AdMob test cihazları + AppLovin test cihazları aktifleşir, debug log açılır. */
@@ -125,6 +137,8 @@ class AdsConfig private constructor(
         var loadTimeoutSec: Int = 20
         var retryBaseDelaySec: Int = 8
         var retryMaxDelaySec: Int = 64
+        var maxBannerRetryCount: Int = 5
+        var reuseBannersAcrossActivities: Boolean = false
         var adTtlMinutes: Int = 55
         var testMode: Boolean = false
         var debugLogging: Boolean = false
@@ -155,6 +169,8 @@ class AdsConfig private constructor(
             loadTimeoutSec = loadTimeoutSec,
             retryBaseDelaySec = retryBaseDelaySec,
             retryMaxDelaySec = retryMaxDelaySec,
+            maxBannerRetryCount = maxBannerRetryCount,
+            reuseBannersAcrossActivities = reuseBannersAcrossActivities,
             adTtlMinutes = adTtlMinutes,
             testMode = testMode,
             debugLogging = debugLogging || testMode,
