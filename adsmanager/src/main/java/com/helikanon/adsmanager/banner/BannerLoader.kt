@@ -30,7 +30,7 @@ internal object BannerLoader {
         formatConfig: FormatConfig,
         placement: PlacementConfig
     ) {
-        val candidates = formatConfig.networkOrder
+        val candidates = formatConfig.networkOrderFor(placement)
             .filter { it != AdNetwork.APPLOVIN || com.helikanon.adsmanager.core.InitManager.applovinUsable }
             .mapNotNull { network -> placement.adUnitIdFor(network)?.let { network to it } }
 
@@ -101,11 +101,11 @@ internal object BannerLoader {
                 // sonraki tüm isteklerini bu askıdaki isteğin arkasında serileştirir.
                 inFlight?.destroy()
                 clearInFlight()
-                errors.add("$network banner load timeout (${config.loadTimeoutSec}s)")
+                errors.add("$network banner load timeout (${placement.loadTimeoutSec ?: config.loadTimeoutSec}s)")
                 attemptAt(contextRef, controller, type, config, formatConfig, placement, candidates, index + 1, errors)
             }
         }
-        MainThread.handler.postDelayed(timeoutRunnable, config.loadTimeoutSec * 1000L)
+        MainThread.handler.postDelayed(timeoutRunnable, (placement.loadTimeoutSec ?: config.loadTimeoutSec) * 1000L)
 
         val callback = object : BannerLoadCallback {
             override fun onLoaded(handle: BannerHandle) {

@@ -156,6 +156,12 @@ val config = AdsConfig.build {
         placement("inter_levelup",
             admobAdUnitId = "ca-app-pub-.../...",
             preload = false)                         // hiç otomatik yüklenmez, sadece manuel
+        placement("inter_splash",                    // açılış/splash: önce AdMob, kısa timeout, tek kullanımlık
+            admobAdUnitId = "ca-app-pub-.../...",
+            applovinAdUnitId = "MAX_AD_UNIT_ID",
+            networkOrder = listOf(AdNetwork.ADMOB, AdNetwork.APPLOVIN),  // format sırasını ezer
+            reloadAfterShow = false,                 // gösterimden sonra tekrar yüklenmez
+            loadTimeoutSec = 8)                      // bu placement için network başına timeout
         defaultPlacement = "inter_default"           // placement verilmezse bu kullanılır
         initialPreloadPlacements = listOf("inter_default")  // açılışta yüklenecekler; boşsa sadece default
     }
@@ -341,7 +347,13 @@ JSON şeması (tam örnek `AdsConfigJsonParser` dokümantasyonunda):
     "initialPreloadPlacements": ["inter_default"],
     "placements": {
       "inter_default": { "admob": "ca-app-pub-.../...", "applovin": "MAX_ID" },
-      "inter_levelup": { "admob": "ca-app-pub-.../...", "preload": false }
+      "inter_levelup": { "admob": "ca-app-pub-.../...", "preload": false },
+      "inter_splash": {
+        "admob": "ca-app-pub-.../...", "applovin": "MAX_ID",
+        "networkOrder": "admob,applovin",
+        "reloadAfterShow": false,
+        "loadTimeoutSec": 8
+      }
     }
   }
 }
@@ -362,7 +374,9 @@ AdsManager.setRewardedSsvOptions(userId, customData)  // AdMob rewarded SSV
 
 ## 4. Davranış Kuralları (özet)
 
-- **Waterfall:** Format bazlı `networkOrder` sırasıyla denenir. Bir network başarılı yüklerse diğerleri denenmez; fail/timeout olursa sıradakine geçilir.
+- **Waterfall:** `networkOrder` sırasıyla denenir. Bir network başarılı yüklerse diğerleri denenmez; fail/timeout olursa sıradakine geçilir. Sıradaki bir network'ün o placement'ta ad unit id'si yoksa (ya da boş string ise) adım atlanır.
+- **Placement bazlı sıra & timeout:** `networkOrder` ve `loadTimeoutSec` placement seviyesinde de verilebilir ve format/global değeri ezer. Tipik kullanım: format sırası `applovin,admob` iken splash placement'ında `admob,applovin` + kısa `loadTimeoutSec` ile açılışta hızlı AdMob gösterimi.
+- **Tek kullanımlık placement:** Placement `reloadAfterShow = false` ise açılışta (preload açıksa) yüklenir, gösterimden sonra otomatik yeniden yüklenmez ve load hatası sonrası backoff retry döngüsü kurulmaz. Oturumda bir kez kullanılan splash placement'ları için boşa giden request'i önler.
 - **Placement bazlı saklama:** Her placement için ayrı reklam tutulur. `load/show`'da placement verilmezse `defaultPlacement` kullanılır.
 - **Preload (3 kademeli):** Format `preload = true` ana anahtardır. `initialPreloadPlacements` açılışta hangi placement'ların yükleneceğini belirler (boşsa sadece `defaultPlacement`). Placement bazlı `preload = false` ise o placement otomatik preload'a hiç katılmaz — ne açılışta ne gösterim sonrası — yalnızca `load...()` ile veya hazır değilken yapılan `show...()` çağrısıyla yüklenir. Otomatik preload açık olan placement'larda tüm waterfall fail olursa exponential backoff (8s → 16s → ... → 64s) ile retry yapılır.
 - **Banner reuse & retry sınırı:** Banner'lar (activity, placement) bazında cache'lenir; aynı parametrelerle tekrar `loadBanner` yeni istek atmaz, yüklü reklamı yeni container'a taşır. Banner retry'ları `maxBannerRetryCount` ile sınırlıdır (detaylar Banner bölümünde).

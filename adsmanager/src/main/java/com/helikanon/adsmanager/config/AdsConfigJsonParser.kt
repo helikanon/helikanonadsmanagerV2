@@ -42,7 +42,11 @@ import org.json.JSONObject
  *     "placements": {
  *       "inter_default": { "admob": "ca-app-pub-.../...", "applovin": "MAX_AD_UNIT" },
  *       "inter_gameover": { "admob": "ca-app-pub-.../..." },
- *       "inter_levelup": { "admob": "ca-app-pub-.../...", "preload": false }
+ *       "inter_levelup": { "admob": "ca-app-pub-.../...", "preload": false },
+ *       "inter_splash": {
+ *         "admob": "ca-app-pub-.../...", "applovin": "MAX_AD_UNIT",
+ *         "networkOrder": "admob,applovin", "loadTimeoutSec": 8, "reloadAfterShow": false
+ *       }
  *     }
  *   },
  *   "rewarded":  { "...": "..." },
@@ -50,7 +54,14 @@ import org.json.JSONObject
  *   "appOpen":   { "...": "..." }
  * }
  * ```
- * `networkOrder` string ("admob,applovin") veya dizi (["admob","applovin"]) olabilir.
+ * `networkOrder` string ("admob,applovin") veya dizi (["admob","applovin"]) olabilir ve
+ * hem format hem placement seviyesinde verilebilir; placement'taki değer format sırasını ezer.
+ *
+ * Placement seviyesindeki ek anahtarlar:
+ * - `networkOrder`: yalnızca o placement için waterfall sırası.
+ * - `reloadAfterShow` (varsayılan `true`): `false` ise gösterim sonrası otomatik yeniden
+ *   yükleme yapılmaz (oturumda bir kez kullanılan splash placement'ları için).
+ * - `loadTimeoutSec`: o placement için network başına load timeout'u (saniye).
  *
  * Preload kontrolü üç kademelidir:
  * - Format `preload`: o format için otomatik yükleme ana anahtarı.
@@ -116,14 +127,7 @@ object AdsConfigJsonParser {
             preload = obj.optBoolean("preload", false)
 
             // networkOrder: "admob,applovin" ya da ["admob","applovin"]
-            val orderArray = obj.optJSONArray("networkOrder")
-            if (orderArray != null) {
-                networkOrder = (0 until orderArray.length())
-                    .mapNotNull { AdNetwork.fromKey(orderArray.optString(it)) }
-                    .distinct()
-            } else {
-                obj.optStringOrNull("networkOrder")?.let { networkOrderString = it }
-            }
+            obj.optNetworkOrder()?.let { networkOrder = it }
 
             val placementsObj = obj.optJSONObject("placements")
             if (placementsObj != null) {
@@ -134,7 +138,11 @@ object AdsConfigJsonParser {
                         admobAdUnitId = p.optStringOrNull("admob"),
                         applovinAdUnitId = p.optStringOrNull("applovin") ?: p.optStringOrNull("max"),
                         enabled = p.optBoolean("enabled", true),
-                        preload = p.optBoolean("preload", true)
+                        preload = p.optBoolean("preload", true),
+                        // placement seviyesinde verilirse format sırasını ezer
+                        networkOrder = p.optNetworkOrder(),
+                        reloadAfterShow = p.optBoolean("reloadAfterShow", true),
+                        loadTimeoutSec = p.optPositiveIntOrNull("loadTimeoutSec")
                     )
                 }
             }
@@ -143,6 +151,21 @@ object AdsConfigJsonParser {
             initialPreloadPlacements = obj.optStringList("initialPreloadPlacements")
         }
     }
+
+    /** `"admob,applovin"` string'i ya da `["admob","applovin"]` dizisi; yoksa null. */
+    private fun JSONObject.optNetworkOrder(key: String = "networkOrder"): List<AdNetwork>? {
+        val arr = optJSONArray(key)
+        if (arr != null) {
+            return (0 until arr.length())
+                .mapNotNull { AdNetwork.fromKey(arr.optString(it)) }
+                .distinct()
+                .takeIf { it.isNotEmpty() }
+        }
+        return optStringOrNull(key)?.let { AdNetwork.parseOrder(it).takeIf { order -> order.isNotEmpty() } }
+    }
+
+    private fun JSONObject.optPositiveIntOrNull(key: String): Int? =
+        if (has(key) && !isNull(key)) optInt(key, 0).takeIf { it > 0 } else null
 
     private fun JSONObject.optStringOrNull(key: String): String? =
         if (has(key) && !isNull(key)) optString(key).takeIf { it.isNotBlank() } else null

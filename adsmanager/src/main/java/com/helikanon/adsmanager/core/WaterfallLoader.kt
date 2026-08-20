@@ -22,7 +22,7 @@ internal object WaterfallLoader {
         placement: PlacementConfig,
         onResult: (LoadedFullscreenAd?, String?) -> Unit
     ) {
-        val candidates = formatConfig.networkOrder
+        val candidates = formatConfig.networkOrderFor(placement)
             .filter { it != com.helikanon.adsmanager.config.AdNetwork.APPLOVIN || InitManager.applovinUsable }
             .mapNotNull { network -> placement.adUnitIdFor(network)?.let { network to it } }
 
@@ -54,12 +54,13 @@ internal object WaterfallLoader {
         AdsLogger.d("Waterfall: loading $format/${placement.id} from $network (step ${index + 1}/${candidates.size})")
 
         var settled = false
-        val timeoutMs = config.loadTimeoutSec * 1000L
+        val timeoutSec = placement.loadTimeoutSec ?: config.loadTimeoutSec
+        val timeoutMs = timeoutSec * 1000L
 
         val timeoutRunnable = Runnable {
             if (!settled) {
                 settled = true
-                val msg = "$network load timeout (${config.loadTimeoutSec}s) for $format/${placement.id}"
+                val msg = "$network load timeout (${timeoutSec}s) for $format/${placement.id}"
                 AdsLogger.w(msg)
                 errors.add(msg)
                 attemptAt(context, config, formatConfig, placement, candidates, index + 1, errors, onResult)

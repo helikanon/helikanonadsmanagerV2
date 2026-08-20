@@ -527,8 +527,11 @@ object AdsManager {
                     } else {
                         val err = error ?: "unknown error"
                         EventCenter.event { it.onAdLoadFailed(format, placement.id, err) }
-                        // Preload açıksa exponential backoff ile otomatik yeniden dene
-                        if (formatConfig.autoPreloads(placement)) {
+                        // Preload açıksa exponential backoff ile otomatik yeniden dene.
+                        // reloadAfterShow=false olan tek kullanımlık placement'larda (ör. splash)
+                        // retry döngüsü kurulmaz; o slot oturumda bir kez kullanıldığı için
+                        // arka planda sonsuza dek request atmasının anlamı yok.
+                        if (formatConfig.reloadsAfterShow(placement)) {
                             RetryScheduler.scheduleRetry(
                                 format, placement.id, cfg.retryBaseDelaySec, cfg.retryMaxDelaySec
                             ) {
@@ -623,7 +626,7 @@ object AdsManager {
                 EventCenter.event { it.onAdShowFailed(info, error) }
                 callbacks?.onShowFailed?.let { cb -> MainThread.run { cb(error) } }
                 ad.destroy()
-                if (formatConfig.autoPreloads(placement)) loadFullscreen(format, placement.id)
+                if (formatConfig.reloadsAfterShow(placement)) loadFullscreen(format, placement.id)
             }
 
             override fun onDismissed() {
@@ -631,7 +634,7 @@ object AdsManager {
                 EventCenter.event { it.onAdDismissed(info) }
                 callbacks?.onDismissed?.let { cb -> MainThread.run { cb() } }
                 // Gösterim sonrası otomatik re-preload
-                if (formatConfig.autoPreloads(placement)) loadFullscreen(format, placement.id)
+                if (formatConfig.reloadsAfterShow(placement)) loadFullscreen(format, placement.id)
             }
 
             override fun onClicked() {
@@ -653,7 +656,7 @@ object AdsManager {
             EventCenter.event { it.onAdShowFailed(info, t.message ?: "show threw") }
             callbacks?.onShowFailed?.let { cb -> MainThread.run { cb(t.message ?: "show threw") } }
             ad.destroy()
-            if (formatConfig.autoPreloads(placement)) loadFullscreen(format, placement.id)
+            if (formatConfig.reloadsAfterShow(placement)) loadFullscreen(format, placement.id)
             return false
         }
         return true

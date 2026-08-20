@@ -13,7 +13,30 @@ class PlacementConfig(
      * ya da hazır değilken yapılan `show...()` çağrısının tetiklediği yüklemeyle dolar.
      * Format seviyesindeki [FormatConfig.preload] kapalıysa bu değerin etkisi yoktur.
      */
-    val preload: Boolean = true
+    val preload: Boolean = true,
+    /**
+     * Bu placement'a özel waterfall sırası. `null` (varsayılan) ise format seviyesindeki
+     * [FormatConfig.networkOrder] kullanılır. Örn: format sırası `applovin,admob` iken
+     * splash placement'ı için `admob,applovin` vererek açılışta önce AdMob denenir.
+     * Sıradaki bir network'ün bu placement'ta ad unit id'si yoksa o adım yine atlanır.
+     */
+    val networkOrder: List<AdNetwork>? = null,
+    /**
+     * Gösterim sonrası otomatik yeniden yükleme yapılsın mı? `false` ise placement
+     * "tek kullanımlık" olur: açılışta (preload açıksa) yüklenir, gösterildikten sonra
+     * bir daha kendiliğinden yüklenmez. Oturumda bir kez kullanılan splash/açılış
+     * placement'ları için boşa giden request'i önler.
+     *
+     * `false` ayrıca load hatası sonrası kurulan exponential backoff retry döngüsünü de
+     * kapatır; manuel `load...()` çağrıları her zaman çalışmaya devam eder.
+     */
+    val reloadAfterShow: Boolean = true,
+    /**
+     * Bu placement için network başına load timeout (saniye). `null` ise
+     * [AdsConfig.loadTimeoutSec] kullanılır. Splash gibi kullanıcının beklediği
+     * yerlerde daha kısa bir değer vererek waterfall'un sonraki adımına hızlı geçilir.
+     */
+    val loadTimeoutSec: Int? = null
 ) {
     fun adUnitIdFor(network: AdNetwork): String? = adUnitIds[network]?.takeIf { it.isNotBlank() }
 }
@@ -49,6 +72,18 @@ class FormatConfig(
     /** Bu placement için otomatik (açılış + gösterim sonrası) preload açık mı? */
     fun autoPreloads(placement: PlacementConfig): Boolean =
         preload && placement.enabled && placement.preload
+
+    /**
+     * Gösterim (veya show hatası) sonrası otomatik yeniden yükleme yapılsın mı?
+     * [PlacementConfig.reloadAfterShow] `false` ise açılış preload'ı yapılır ama
+     * gösterim sonrası yeniden yükleme yapılmaz.
+     */
+    fun reloadsAfterShow(placement: PlacementConfig): Boolean =
+        autoPreloads(placement) && placement.reloadAfterShow
+
+    /** Bu placement için geçerli waterfall sırası (placement override'ı varsa o kazanır). */
+    fun networkOrderFor(placement: PlacementConfig): List<AdNetwork> =
+        placement.networkOrder?.takeIf { it.isNotEmpty() } ?: networkOrder
 
     /** Açılışta yüklenecek placement'lar. */
     fun initialPreloadPlacements(): List<PlacementConfig> {
@@ -119,7 +154,9 @@ class AdsConfig private constructor(
 
     /** Config'de en az bir formatta kullanılan network'ler. */
     fun usedNetworks(): Set<AdNetwork> =
-        formats.values.filter { it.enabled }.flatMap { it.networkOrder }.toSet()
+        formats.values.filter { it.enabled }
+            .flatMap { fc -> fc.networkOrder + fc.placements.values.flatMap { it.networkOrder.orEmpty() } }
+            .toSet()
 
     // ---------------------------------------------------------------- Builder
 
@@ -210,19 +247,34 @@ class AdsConfig private constructor(
         /**
          * @param preload `false` ise bu placement otomatik preload'a hiç katılmaz
          *   (ne açılışta ne de gösterim sonrası); sadece manuel yüklenir.
+         * @param networkOrder bu placement'a özel waterfall sırası; `null` ise format sırası kullanılır.
+         * @param reloadAfterShow `false` ise gösterim sonrası otomatik yeniden yükleme yapılmaz.
+         * @param loadTimeoutSec bu placement'a özel network başına load timeout'u (saniye).
          */
+        @JvmOverloads
         fun placement(
             id: String,
             admobAdUnitId: String? = null,
             applovinAdUnitId: String? = null,
             enabled: Boolean = true,
-            preload: Boolean = true
+            preload: Boolean = true,
+            networkOrder: List<AdNetwork>? = null,
+            reloadAfterShow: Boolean = true,
+            loadTimeoutSec: Int? = null
         ) {
             val map = buildMap {
                 admobAdUnitId?.let { put(AdNetwork.ADMOB, it) }
                 applovinAdUnitId?.let { put(AdNetwork.APPLOVIN, it) }
             }
-            placements[id] = PlacementConfig(id, map, enabled, preload)
+            placements[id] = PlacementConfig(
+                id = id,
+                adUnitIds = map,
+                enabled = enabled,
+                preload = preload,
+                networkOrder = networkOrder,
+                reloadAfterShow = reloadAfterShow,
+                loadTimeoutSec = loadTimeoutSec
+            )
             if (defaultPlacement == null) defaultPlacement = id
         }
 
