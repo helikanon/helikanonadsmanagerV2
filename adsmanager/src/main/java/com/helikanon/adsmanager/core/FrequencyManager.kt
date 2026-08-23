@@ -5,7 +5,8 @@ import com.helikanon.adsmanager.config.AdsConfig
 
 /**
  * Gösterim sıklığı kuralları: interstitial minimum aralık, oturum limiti,
- * ilk gösterim gecikmesi ve app open'ın interstitial/rewarded sonrası minimum bekleme süresi.
+ * ilk gösterim gecikmesi, app open'ın interstitial/rewarded sonrası minimum bekleme süresi
+ * ve iki app open arasındaki minimum aralık.
  */
 internal object FrequencyManager {
 
@@ -13,12 +14,14 @@ internal object FrequencyManager {
     private var lastInterstitialShownMs: Long = 0L
     /** Son interstitial VEYA rewarded gösterim zamanı (app open gap kontrolü için). */
     private var lastInterOrRewardedShownMs: Long = 0L
+    private var lastAppOpenShownMs: Long = 0L
     private var sessionInterstitialCount: Int = 0
 
     fun onSessionStart() {
         sessionStartMs = SystemClock.elapsedRealtime()
         lastInterstitialShownMs = 0L
         lastInterOrRewardedShownMs = 0L
+        lastAppOpenShownMs = 0L
         sessionInterstitialCount = 0
     }
 
@@ -55,10 +58,17 @@ internal object FrequencyManager {
     }
 
     fun canShowAppOpen(config: AdsConfig): Check {
+        val now = SystemClock.elapsedRealtime()
         if (lastInterOrRewardedShownMs > 0) {
-            val sinceSec = (SystemClock.elapsedRealtime() - lastInterOrRewardedShownMs) / 1000
+            val sinceSec = (now - lastInterOrRewardedShownMs) / 1000
             if (sinceSec < config.appOpenMinGapSec) {
                 return Check.Denied("app open min gap after inter/rewarded: ${sinceSec}s < ${config.appOpenMinGapSec}s")
+            }
+        }
+        if (config.appOpenMinIntervalSec > 0 && lastAppOpenShownMs > 0) {
+            val sinceSec = (now - lastAppOpenShownMs) / 1000
+            if (sinceSec < config.appOpenMinIntervalSec) {
+                return Check.Denied("app open min interval: ${sinceSec}s < ${config.appOpenMinIntervalSec}s")
             }
         }
         return Check.Allowed
@@ -69,6 +79,10 @@ internal object FrequencyManager {
         lastInterstitialShownMs = now
         lastInterOrRewardedShownMs = now
         sessionInterstitialCount++
+    }
+
+    fun recordAppOpenShown() {
+        lastAppOpenShownMs = SystemClock.elapsedRealtime()
     }
 
     fun recordRewardedShown() {

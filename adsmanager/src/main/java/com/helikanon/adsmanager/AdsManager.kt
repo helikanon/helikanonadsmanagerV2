@@ -335,6 +335,7 @@ object AdsManager {
      * App open reklam gösterir. Kurallar:
      * - Başka bir fullscreen reklam (interstitial/rewarded/app open) açıkken gösterilmez.
      * - Son interstitial/rewarded gösteriminden itibaren `appOpenMinGapSec` geçmemişse gösterilmez.
+     * - Son app open gösteriminden itibaren `appOpenMinIntervalSec` geçmemişse gösterilmez (0 = limitsiz).
      */
     @JvmStatic
     @JvmOverloads
@@ -614,6 +615,7 @@ object AdsManager {
                 when (format) {
                     AdFormat.INTERSTITIAL -> FrequencyManager.recordInterstitialShown()
                     AdFormat.REWARDED -> FrequencyManager.recordRewardedShown()
+                    AdFormat.APP_OPEN -> FrequencyManager.recordAppOpenShown()
                     else -> Unit
                 }
                 EventCenter.event { it.onAdShown(info) }

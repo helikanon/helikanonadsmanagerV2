@@ -106,6 +106,8 @@ class AdsConfig private constructor(
     val interstitialMinIntervalSec: Int,
     /** Son interstitial/rewarded gösteriminden sonra app open gösterilebilmesi için gereken minimum süre (saniye). */
     val appOpenMinGapSec: Int,
+    /** İki app open gösterimi arasındaki minimum süre (saniye). 0 = limitsiz. */
+    val appOpenMinIntervalSec: Int,
     /** Oturum başına maksimum interstitial gösterimi. 0 = limitsiz. */
     val sessionMaxInterstitials: Int,
     /** Uygulama açılışından ilk interstitial gösterimine kadar beklenecek süre (saniye). 0 = beklemesiz. */
@@ -169,6 +171,7 @@ class AdsConfig private constructor(
         var applovinSdkKey: String? = null
         var interstitialMinIntervalSec: Int = 30
         var appOpenMinGapSec: Int = 30
+        var appOpenMinIntervalSec: Int = 0
         var sessionMaxInterstitials: Int = 0
         var firstInterstitialDelaySec: Int = 0
         var loadTimeoutSec: Int = 20
@@ -201,6 +204,7 @@ class AdsConfig private constructor(
             applovinSdkKey = applovinSdkKey,
             interstitialMinIntervalSec = interstitialMinIntervalSec,
             appOpenMinGapSec = appOpenMinGapSec,
+            appOpenMinIntervalSec = appOpenMinIntervalSec,
             sessionMaxInterstitials = sessionMaxInterstitials,
             firstInterstitialDelaySec = firstInterstitialDelaySec,
             loadTimeoutSec = loadTimeoutSec,

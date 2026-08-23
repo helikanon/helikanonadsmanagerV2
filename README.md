@@ -135,6 +135,7 @@ val config = AdsConfig.build {
 
     interstitialMinIntervalSec = 45      // iki interstitial arası min süre
     appOpenMinGapSec = 30                // son inter/rewarded'dan sonra app open için min süre
+    appOpenMinIntervalSec = 0            // iki app open arası min süre (0 = limitsiz)
     sessionMaxInterstitials = 0          // 0 = limitsiz
     firstInterstitialDelaySec = 0        // açılıştan ilk interstitial'a bekleme
     loadTimeoutSec = 20                  // network başına load timeout
@@ -249,7 +250,8 @@ AdsManager.enableAppOpenAutoShow(
 ```
 
 Kurallar her iki modda da geçerli: başka fullscreen reklam açıkken gösterilmez ve
-son interstitial/rewarded üzerinden `appOpenMinGapSec` geçmeden gösterilmez.
+son interstitial/rewarded üzerinden `appOpenMinGapSec` ve son app open üzerinden
+`appOpenMinIntervalSec` geçmeden gösterilmez.
 
 ### Banner
 
@@ -339,6 +341,7 @@ JSON şeması (tam örnek `AdsConfigJsonParser` dokümantasyonunda):
   "umpConsentEnabled": true,
   "interstitialMinIntervalSec": 45,
   "appOpenMinGapSec": 30,
+  "appOpenMinIntervalSec": 0,
   "interstitial": {
     "enabled": true,
     "preload": true,
@@ -382,7 +385,7 @@ AdsManager.setRewardedSsvOptions(userId, customData)  // AdMob rewarded SSV
 - **Banner reuse & retry sınırı:** Banner'lar (activity, placement) bazında cache'lenir; aynı parametrelerle tekrar `loadBanner` yeni istek atmaz, yüklü reklamı yeni container'a taşır. Banner retry'ları `maxBannerRetryCount` ile sınırlıdır (detaylar Banner bölümünde).
 - **Expire:** Yüklenen reklam `adTtlMinutes` (varsayılan 55 dk) sonra geçersiz sayılır ve çöpe atılır; preload açıksa yenisi yüklenir.
 - **Tek fullscreen kuralı:** Herhangi bir fullscreen reklam açıkken ikinci bir `show` çağrısı reddedilir.
-- **App open koruması:** Interstitial/rewarded açıkken app open gösterilmez; son inter/rewarded gösteriminden `appOpenMinGapSec` geçmeden app open gösterilmez.
+- **App open koruması:** Interstitial/rewarded açıkken app open gösterilmez; son inter/rewarded gösteriminden `appOpenMinGapSec`, son app open gösteriminden `appOpenMinIntervalSec` geçmeden app open gösterilmez.
 - **Offline:** Bağlantı yokken load bekletilir, bağlantı gelince otomatik tetiklenir.
 - **Init kuyruğu:** SDK init'i bitmeden yapılan çağrılar kuyruklanır, init bitince çalışır.
 - **Kill switch:** `adsEnabled` (global) → format `enabled` → placement `enabled` hiyerarşisiyle kapatma.

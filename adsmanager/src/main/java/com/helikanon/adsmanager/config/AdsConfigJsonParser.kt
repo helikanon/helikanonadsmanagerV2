@@ -30,6 +30,7 @@ import org.json.JSONObject
  *   "umpConsentEnabled": true,
  *   "interstitialMinIntervalSec": 45,
  *   "appOpenMinGapSec": 30,
+ *   "appOpenMinIntervalSec": 0,
  *   "sessionMaxInterstitials": 0,
  *   "firstInterstitialDelaySec": 0,
  *   "loadTimeoutSec": 20,
@@ -84,6 +85,7 @@ object AdsConfigJsonParser {
             adsEnabled = root.optBoolean("adsEnabled", true)
             interstitialMinIntervalSec = root.optInt("interstitialMinIntervalSec", 30)
             appOpenMinGapSec = root.optInt("appOpenMinGapSec", 30)
+            appOpenMinIntervalSec = root.optInt("appOpenMinIntervalSec", 0)
             sessionMaxInterstitials = root.optInt("sessionMaxInterstitials", 0)
             firstInterstitialDelaySec = root.optInt("firstInterstitialDelaySec", 0)
             loadTimeoutSec = root.optInt("loadTimeoutSec", 20)
