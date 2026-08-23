@@ -45,7 +45,7 @@ dependencyResolutionManagement {
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("com.github.serkandaglioglu:helikanonadsmanagerV2:1.0.0")
+    implementation("com.github.helikanon:helikanonadsmanagerV2:1.1.0")
 }
 ```
 

@@ -93,7 +93,7 @@ afterEvaluate {
             create<MavenPublication>("release") {
                 from(components["release"])
 
-                groupId = System.getenv("GROUP") ?: "com.github.serkandaglioglu"
+                groupId = System.getenv("GROUP") ?: "com.github.helikanon"
                 artifactId = "adsmanager"
                 version = System.getenv("VERSION") ?: "1.0.0-local"
             }
