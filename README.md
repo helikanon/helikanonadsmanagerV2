@@ -45,7 +45,7 @@ dependencyResolutionManagement {
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("com.github.helikanon:helikanonadsmanagerV2:1.2.0")
+    implementation("com.github.helikanon:helikanonadsmanagerV2:1.3.0")
 }
 ```
 
@@ -364,6 +364,27 @@ JSON şeması (tam örnek `AdsConfigJsonParser` dokümantasyonunda):
 
 > Not: Network seti (AdMob/AppLovin kullanımı) init sırasında belirlenir. `updateConfig` ile
 > sıra/limit/enable değiştirin; o oturumda hiç kullanılmamış bir network'ü sonradan eklemeyin.
+
+### Çalışma anında tek alan güncelleme
+
+Tüm JSON'u yeniden vermeden, mevcut config'in yalnızca istenen alanlarını güncelleyebilirsiniz.
+Verilmeyen alanlar (placements dahil) aynen korunur:
+
+```kotlin
+AdsManager.updateConfig { appOpenMinIntervalSec = 60 }
+
+AdsManager.updateConfig {
+    interstitialMinIntervalSec = 45
+    interstitial { preload = false }          // nested format ayarları da güncellenebilir
+}
+```
+
+Aynı şey `AdsConfig.toBuilder()` ile manuel de yapılabilir:
+`AdsManager.updateConfig(config.toBuilder().apply { adTtlMinutes = 45 }.build())`.
+
+> Not: Sonraki bir JSON'lu `updateConfig` çağrısı (ör. Remote Config fetch) config'i sıfırdan
+> kurduğundan buradaki kısmi değişiklikleri ezer. Kalıcı olması gereken ayarları `localSettings`
+> bloğunda verin; oturumluk ince ayarlar için bu API'yi kullanın.
 
 ### Diğer
 

@@ -195,6 +195,37 @@ object AdsManager {
         return true
     }
 
+    /**
+     * Mevcut config'in yalnızca istenen alanlarını günceller; verilmeyen alanlar aynen korunur.
+     * Tüm JSON'u yeniden vermeye gerek kalmadan tek bir değeri değiştirmek için kullanılır:
+     *
+     * ```kotlin
+     * AdsManager.updateConfig { appOpenMinIntervalSec = 60 }
+     * AdsManager.updateConfig {
+     *     interstitialMinIntervalSec = 45
+     *     interstitial { preload = false }
+     * }
+     * ```
+     *
+     * Notlar:
+     * - Kütüphane initialize edilmemişse çağrı yok sayılır ve `false` döner.
+     * - Sonraki bir JSON'lu [updateConfig] çağrısı config'i sıfırdan kurduğundan burada
+     *   yapılan kısmi değişiklikleri ezer; kalıcı olması gereken ayarları `localSettings`
+     *   bloğunda verin.
+     * - `applovinSdkKey`, `testMode`, `umpConsentEnabled` gibi init sırasında kullanılan
+     *   alanların çalışma anında değiştirilmesinin etkisi yoktur.
+     */
+    @JvmStatic
+    fun updateConfig(block: AdsConfig.Builder.() -> Unit): Boolean {
+        val current = config
+        if (current == null) {
+            AdsLogger.e("updateConfig(block) ignored: AdsManager is not initialized")
+            return false
+        }
+        updateConfig(current.toBuilder().apply(block).build())
+        return true
+    }
+
     // ============================================================ listeners
 
     @JvmStatic

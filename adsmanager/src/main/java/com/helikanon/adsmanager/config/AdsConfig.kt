@@ -160,6 +160,13 @@ class AdsConfig private constructor(
             .flatMap { fc -> fc.networkOrder + fc.placements.values.flatMap { it.networkOrder.orEmpty() } }
             .toSet()
 
+    /**
+     * Tüm alanları bu config'in değerleriyle doldurulmuş yeni bir [Builder] döner.
+     * Birkaç alanı değiştirip [Builder.build] ile yeni bir config üretmek için kullanılır;
+     * bu config değişmez. Ör: `config.toBuilder().apply { appOpenMinIntervalSec = 60 }.build()`
+     */
+    fun toBuilder(): Builder = Builder().also { it.seedFrom(this) }
+
     // ---------------------------------------------------------------- Builder
 
     companion object {
@@ -197,6 +204,32 @@ class AdsConfig private constructor(
 
         private fun format(format: AdFormat, block: FormatBuilder.() -> Unit) {
             formatBuilders.getOrPut(format) { FormatBuilder(format) }.apply(block)
+        }
+
+        internal fun seedFrom(source: AdsConfig) {
+            adsEnabled = source.adsEnabled
+            applovinSdkKey = source.applovinSdkKey
+            interstitialMinIntervalSec = source.interstitialMinIntervalSec
+            appOpenMinGapSec = source.appOpenMinGapSec
+            appOpenMinIntervalSec = source.appOpenMinIntervalSec
+            sessionMaxInterstitials = source.sessionMaxInterstitials
+            firstInterstitialDelaySec = source.firstInterstitialDelaySec
+            loadTimeoutSec = source.loadTimeoutSec
+            retryBaseDelaySec = source.retryBaseDelaySec
+            retryMaxDelaySec = source.retryMaxDelaySec
+            maxBannerRetryCount = source.maxBannerRetryCount
+            reuseBannersAcrossActivities = source.reuseBannersAcrossActivities
+            adTtlMinutes = source.adTtlMinutes
+            testMode = source.testMode
+            debugLogging = source.debugLogging
+            umpConsentEnabled = source.umpConsentEnabled
+            childDirected = source.childDirected
+            doNotSell = source.doNotSell
+            admobTestDeviceIds = source.admobTestDeviceIds
+            maxTestDeviceAdvertisingIds = source.maxTestDeviceAdvertisingIds
+            source.formats.forEach { (fmt, fc) ->
+                formatBuilders.getOrPut(fmt) { FormatBuilder(fmt) }.seedFrom(fc)
+            }
         }
 
         fun build(): AdsConfig = AdsConfig(
@@ -280,6 +313,15 @@ class AdsConfig private constructor(
                 loadTimeoutSec = loadTimeoutSec
             )
             if (defaultPlacement == null) defaultPlacement = id
+        }
+
+        internal fun seedFrom(source: FormatConfig) {
+            enabled = source.enabled
+            preload = source.preload
+            defaultPlacement = source.defaultPlacementId
+            initialPreloadPlacements = source.initialPreloadPlacementIds
+            networkOrder = source.networkOrder
+            placements.putAll(source.placements)
         }
 
         fun build(): FormatConfig = FormatConfig(
