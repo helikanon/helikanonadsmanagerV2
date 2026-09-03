@@ -22,6 +22,7 @@ import com.helikanon.adsmanager.core.ConnectivityMonitor
 import com.helikanon.adsmanager.core.EventCenter
 import com.helikanon.adsmanager.core.FrequencyManager
 import com.helikanon.adsmanager.core.FullscreenGate
+import com.helikanon.adsmanager.core.FullscreenGateWatchdog
 import com.helikanon.adsmanager.core.InitManager
 import com.helikanon.adsmanager.core.LoadedFullscreenAd
 import com.helikanon.adsmanager.core.MainThread
@@ -96,6 +97,7 @@ object AdsManager {
 
         FrequencyManager.onSessionStart()
         ConnectivityMonitor.start(appCtx)
+        installFullscreenGateWatchdog(appCtx)
 
         if (!config.adsEnabled) {
             AdsLogger.w("Ads are disabled by config; SDKs will not be initialized")
@@ -637,7 +639,8 @@ object AdsManager {
             return false
         }
 
-        if (!FullscreenGate.tryAcquire(format)) return false
+        val gateTicket = FullscreenGate.tryAcquire(format, placement.id) ?: return false
+        FullscreenGateWatchdog.onShowRequested(activity)
         AdRepository.remove(format, placement.id)
 
         val info = AdInfo(format, placement.id, ad.network, ad.adUnitId)
@@ -654,7 +657,7 @@ object AdsManager {
             }
 
             override fun onShowFailed(error: String) {
-                FullscreenGate.release(format)
+                FullscreenGate.release(gateTicket)
                 AdsLogger.w("$format/${placement.id} show failed: $error")
                 EventCenter.event { it.onAdShowFailed(info, error) }
                 callbacks?.onShowFailed?.let { cb -> MainThread.run { cb(error) } }
@@ -663,7 +666,7 @@ object AdsManager {
             }
 
             override fun onDismissed() {
-                FullscreenGate.release(format)
+                FullscreenGate.release(gateTicket)
                 EventCenter.event { it.onAdDismissed(info) }
                 callbacks?.onDismissed?.let { cb -> MainThread.run { cb() } }
                 // Gösterim sonrası otomatik re-preload
@@ -684,7 +687,7 @@ object AdsManager {
             ad.show(activity, showListener)
         } catch (t: Throwable) {
             // show senkron patlarsa gate kilitli kalmasın
-            FullscreenGate.release(format)
+            FullscreenGate.release(gateTicket)
             AdsLogger.e("$format/${placement.id} show threw", t)
             EventCenter.event { it.onAdShowFailed(info, t.message ?: "show threw") }
             callbacks?.onShowFailed?.let { cb -> MainThread.run { cb(t.message ?: "show threw") } }
@@ -693,6 +696,24 @@ object AdsManager {
             return false
         }
         return true
+    }
+
+    /**
+     * Fullscreen kilidinin sonsuza dek dolu kalmasına karşı koruma. Reklam
+     * activity'sinin üstüne uygulamanın kendi activity'si geldiğinde (bildirim
+     * tıklaması vb.) network dismiss callback'i hiç gelmez; bekçi kilidi açar ve
+     * tüketilmiş placement yeniden yüklenir.
+     */
+    private fun installFullscreenGateWatchdog(appCtx: Context) {
+        (appCtx as? Application)?.let { FullscreenGateWatchdog.install(it) }
+        FullscreenGate.onForceReleased = reload@{ format, placementId, _ ->
+            val cfg = config ?: return@reload
+            val formatConfig = cfg.format(format) ?: return@reload
+            val placement = formatConfig.placement(placementId) ?: return@reload
+            if (formatConfig.reloadsAfterShow(placement)) {
+                MainThread.run { loadFullscreen(format, placement.id) }
+            }
+        }
     }
 
     private fun preloadAll() {

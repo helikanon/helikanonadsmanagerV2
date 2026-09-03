@@ -45,7 +45,7 @@ dependencyResolutionManagement {
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("com.github.helikanon:helikanonadsmanagerV2:1.3.0")
+    implementation("com.github.helikanon:helikanonadsmanagerV2:1.4.0")
 }
 ```
 
@@ -76,6 +76,17 @@ dependencies {
 ```
 
 AppLovin SDK key manifest'e değil, config'e yazılır (aşağıda).
+
+**AD_ID izni:** `com.google.android.gms.permission.AD_ID` iznini elle eklemenize gerek
+yoktur; Google Mobile Ads SDK bu izni kendi manifest'inde bildirir ve manifest merge
+sırasında uygulamanıza otomatik eklenir. Yalnızca **çocuklara yönelik** bir uygulama
+yapıyorsanız bu izni kaldırmanız gerekir:
+
+```xml
+<uses-permission
+    android:name="com.google.android.gms.permission.AD_ID"
+    tools:node="remove" />
+```
 
 Gereksinimler: minSdk 24, AGP 8.7+, Kotlin 2.0+, JDK 17.
 
@@ -405,7 +416,8 @@ AdsManager.setRewardedSsvOptions(userId, customData)  // AdMob rewarded SSV
 - **Preload (3 kademeli):** Format `preload = true` ana anahtardır. `initialPreloadPlacements` açılışta hangi placement'ların yükleneceğini belirler (boşsa sadece `defaultPlacement`). Placement bazlı `preload = false` ise o placement otomatik preload'a hiç katılmaz — ne açılışta ne gösterim sonrası — yalnızca `load...()` ile veya hazır değilken yapılan `show...()` çağrısıyla yüklenir. Otomatik preload açık olan placement'larda tüm waterfall fail olursa exponential backoff (8s → 16s → ... → 64s) ile retry yapılır.
 - **Banner reuse & retry sınırı:** Banner'lar (activity, placement) bazında cache'lenir; aynı parametrelerle tekrar `loadBanner` yeni istek atmaz, yüklü reklamı yeni container'a taşır. Banner retry'ları `maxBannerRetryCount` ile sınırlıdır (detaylar Banner bölümünde).
 - **Expire:** Yüklenen reklam `adTtlMinutes` (varsayılan 55 dk) sonra geçersiz sayılır ve çöpe atılır; preload açıksa yenisi yüklenir.
-- **Tek fullscreen kuralı:** Herhangi bir fullscreen reklam açıkken ikinci bir `show` çağrısı reddedilir.
+- **Tek fullscreen kuralı:** Herhangi bir fullscreen reklam açıkken ikinci bir `show` çağrısı reddedilir (logda `Another fullscreen ad (...) is showing; ... denied`).
+- **Fullscreen kilidi bekçisi:** Kilit normalde network'ün dismiss/show-failed callback'iyle açılır. Reklam activity'sinin üstüne uygulamanın kendi activity'si gelirse (ör. interstitial açıkken bildirime dokunulup Splash/Main yeniden başlatılırsa) bu callback hiç gelmez. Bu durumda kilit, reklam SDK'sına ait olmayan bir activity resume olduğunda ya da en geç 5 dk sonra zorla açılır (`FullscreenGate force-released` uyarısı) ve tüketilen placement `reloadAfterShow` kuralına göre yeniden yüklenir. Geç gelen eski dismiss callback'i yeni bir gösterimin kilidini açamaz. Uygulama tarafında bildirim intent'lerinde `CLEAR_TOP` yerine launcher bayrakları (`NEW_TASK | RESET_TASK_IF_NEEDED`) kullanmak sorunun oluşmasını baştan engeller.
 - **App open koruması:** Interstitial/rewarded açıkken app open gösterilmez; son inter/rewarded gösteriminden `appOpenMinGapSec`, son app open gösteriminden `appOpenMinIntervalSec` geçmeden app open gösterilmez.
 - **Offline:** Bağlantı yokken load bekletilir, bağlantı gelince otomatik tetiklenir.
 - **Init kuyruğu:** SDK init'i bitmeden yapılan çağrılar kuyruklanır, init bitince çalışır.
