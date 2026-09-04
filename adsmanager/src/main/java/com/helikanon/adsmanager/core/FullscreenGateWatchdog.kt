@@ -15,9 +15,13 @@ import java.lang.ref.WeakReference
  * "another fullscreen ad is showing" ile reddedilir.
  *
  * Kural: kilit tutuluyorken, reklam SDK'sına ait olmayan bir activity
- * resume olursa (ve kilit [GRACE_MS]'den uzun süredir tutuluyorsa) kilit
- * zorla açılır. Gösterimin yapıldığı host activity her durumda "reklam değil"
- * sayılır.
+ * resume olursa kilit zorla açılır. Resume, show() sonrası ilk [GRACE_MS]
+ * içinde gelirse karar grace süresinin sonuna ertelenir (reklam activity'sinin
+ * açılması için tanınan süre); hemen vazgeçilmez. Gösterimin yapıldığı host
+ * activity her durumda "reklam değil" sayılır.
+ *
+ * Ayrıca [isAdActivityInForeground] ile [FullscreenGate] zaman aşımına, gerçek
+ * reklamın hâlâ ekranda olup olmadığını bildirir.
  */
 internal object FullscreenGateWatchdog : Application.ActivityLifecycleCallbacks {
 
@@ -38,6 +42,18 @@ internal object FullscreenGateWatchdog : Application.ActivityLifecycleCallbacks 
     /** Son resume olan activity bir reklam activity'si miydi. */
     @Volatile
     private var lastResumedWasAd = false
+
+    /** Son resume olan reklam activity'si (destroy takibi için). */
+    private var lastResumedAdRef: WeakReference<Activity>? = null
+
+    /**
+     * Bu süreçte en son resume olan activity bir reklam activity'siyse ve henüz
+     * destroy edilmediyse true. Kullanıcı reklama tıklayıp tarayıcıya gittiğinde
+     * (süreçte hiçbir activity resume olmaz) değer true kalır; yani reklam
+     * "hâlâ ekranda / geri dönülecek" sayılır.
+     */
+    val isAdActivityInForeground: Boolean
+        get() = lastResumedWasAd
 
     /** Bilinen reklam SDK'larının fullscreen activity paket önekleri. */
     private val adActivityPrefixes = listOf(
@@ -96,21 +112,36 @@ internal object FullscreenGateWatchdog : Application.ActivityLifecycleCallbacks 
     override fun onActivityResumed(activity: Activity) {
         val isAd = isAdActivity(activity)
         lastResumedWasAd = isAd
-        if (isAd) return
+        if (isAd) {
+            lastResumedAdRef = WeakReference(activity)
+            return
+        }
         if (!FullscreenGate.isShowing) return
-        if (FullscreenGate.heldForMs() < GRACE_MS) return
 
         // Normal kapanışta dismiss callback'i host resume'dan hemen sonra gelir ve kilidi
         // kendisi açar; o yüzden hemen değil, kısa bir doğrulama süresi sonunda karar ver.
+        // show() sonrası ilk GRACE_MS içindeysek (reklam activity'si henüz açılmamış
+        // olabilir) karar grace süresinin sonuna ertelenir; olay kaçırılmaz.
+        val held = FullscreenGate.heldForMs()
+        val delay = maxOf(CONFIRM_MS, GRACE_MS - held)
         val ticket = FullscreenGate.currentTicket
         val name = activity.javaClass.simpleName
-        MainThread.runDelayed(CONFIRM_MS) {
+        MainThread.runDelayed(delay) {
             if (lastResumedWasAd) return@runDelayed
             if (!FullscreenGate.isShowing || FullscreenGate.currentTicket != ticket) return@runDelayed
-            val held = FullscreenGate.heldForMs()
+            val heldNow = FullscreenGate.heldForMs()
             FullscreenGate.forceRelease(
-                "$name resumed over the ad; no dismiss callback within ${CONFIRM_MS}ms (held ${held / 1000}s)"
+                ticket,
+                "$name resumed over the ad; no dismiss callback within ${delay}ms (held ${heldNow / 1000}s)"
             )
+        }
+    }
+
+    override fun onActivityDestroyed(activity: Activity) {
+        // Reklam activity'si (ör. sistem tarafından) yok edildiyse artık ön planda sayılmaz.
+        if (lastResumedAdRef?.get() === activity) {
+            lastResumedAdRef = null
+            lastResumedWasAd = false
         }
     }
 
@@ -119,5 +150,4 @@ internal object FullscreenGateWatchdog : Application.ActivityLifecycleCallbacks 
     override fun onActivityPaused(activity: Activity) = Unit
     override fun onActivityStopped(activity: Activity) = Unit
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
-    override fun onActivityDestroyed(activity: Activity) = Unit
 }

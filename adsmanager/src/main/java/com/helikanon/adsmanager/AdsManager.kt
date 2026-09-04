@@ -2,6 +2,7 @@ package com.helikanon.adsmanager
 
 import android.app.Activity
 import android.app.Application
+import java.util.concurrent.atomic.AtomicBoolean
 import android.content.Context
 import android.view.ViewGroup
 import androidx.lifecycle.LifecycleOwner
@@ -639,13 +640,47 @@ object AdsManager {
             return false
         }
 
-        val gateTicket = FullscreenGate.tryAcquire(format, placement.id) ?: return false
+        val info = AdInfo(format, placement.id, ad.network, ad.adUnitId)
+
+        // Gösterim oturumu tam olarak bir kez sonlanır: onDismissed, onShowFailed veya
+        // kilidin zorla açılması. İlk sonlandıran kazanır; sonradan gelen (geç) terminal
+        // callback'ler yalnızca loglanır. Ödül (onRewardEarned) bu kuralın dışındadır:
+        // geç gelse bile kullanıcıya iletilir.
+        val terminated = AtomicBoolean(false)
+        val shown = AtomicBoolean(false)
+
+        fun reloadAfterShow() {
+            if (formatConfig.reloadsAfterShow(placement)) loadFullscreen(format, placement.id)
+        }
+
+        fun onForceReleased(reason: String) {
+            if (!terminated.compareAndSet(false, true)) return
+            // Adapter'a haber ver (ör. MAX rewarded "gösterimde" kaydını düşürsün).
+            ad.onForceReleased()
+            if (shown.get()) {
+                AdsLogger.w("$format/${placement.id} treated as dismissed after force-release: $reason")
+                EventCenter.event { it.onAdDismissed(info) }
+                callbacks?.onDismissed?.let { cb -> MainThread.run { cb() } }
+            } else {
+                val error = "force-released before display: $reason"
+                AdsLogger.w("$format/${placement.id} show failed: $error")
+                EventCenter.event { it.onAdShowFailed(info, error) }
+                callbacks?.onShowFailed?.let { cb -> MainThread.run { cb(error) } }
+            }
+            reloadAfterShow()
+        }
+
+        val gateTicket = FullscreenGate.tryAcquire(format, placement.id, ::onForceReleased) ?: return false
         FullscreenGateWatchdog.onShowRequested(activity)
         AdRepository.remove(format, placement.id)
 
-        val info = AdInfo(format, placement.id, ad.network, ad.adUnitId)
         val showListener = object : LoadedFullscreenAd.ShowListener {
             override fun onShown(mediatedNetworkName: String?) {
+                if (terminated.get()) {
+                    AdsLogger.d("$format/${placement.id} late onShown ignored (session already terminated)")
+                    return
+                }
+                shown.set(true)
                 when (format) {
                     AdFormat.INTERSTITIAL -> FrequencyManager.recordInterstitialShown()
                     AdFormat.REWARDED -> FrequencyManager.recordRewardedShown()
@@ -658,26 +693,38 @@ object AdsManager {
 
             override fun onShowFailed(error: String) {
                 FullscreenGate.release(gateTicket)
+                if (!terminated.compareAndSet(false, true)) {
+                    AdsLogger.d("$format/${placement.id} late onShowFailed ignored: $error")
+                    return
+                }
                 AdsLogger.w("$format/${placement.id} show failed: $error")
                 EventCenter.event { it.onAdShowFailed(info, error) }
                 callbacks?.onShowFailed?.let { cb -> MainThread.run { cb(error) } }
                 ad.destroy()
-                if (formatConfig.reloadsAfterShow(placement)) loadFullscreen(format, placement.id)
+                reloadAfterShow()
             }
 
             override fun onDismissed() {
                 FullscreenGate.release(gateTicket)
+                if (!terminated.compareAndSet(false, true)) {
+                    AdsLogger.d("$format/${placement.id} late onDismissed ignored (session already terminated)")
+                    return
+                }
                 EventCenter.event { it.onAdDismissed(info) }
                 callbacks?.onDismissed?.let { cb -> MainThread.run { cb() } }
                 // Gösterim sonrası otomatik re-preload
-                if (formatConfig.reloadsAfterShow(placement)) loadFullscreen(format, placement.id)
+                reloadAfterShow()
             }
 
             override fun onClicked() {
+                if (terminated.get()) return
                 EventCenter.event { it.onAdClicked(info) }
             }
 
             override fun onRewardEarned(reward: RewardItem) {
+                if (terminated.get()) {
+                    AdsLogger.w("$format/${placement.id} reward arrived after session terminated; delivering anyway")
+                }
                 EventCenter.event { it.onRewardEarned(info, reward) }
                 onReward?.let { MainThread.run { it(reward) } }
             }
@@ -689,10 +736,13 @@ object AdsManager {
             // show senkron patlarsa gate kilitli kalmasın
             FullscreenGate.release(gateTicket)
             AdsLogger.e("$format/${placement.id} show threw", t)
-            EventCenter.event { it.onAdShowFailed(info, t.message ?: "show threw") }
-            callbacks?.onShowFailed?.let { cb -> MainThread.run { cb(t.message ?: "show threw") } }
-            ad.destroy()
-            if (formatConfig.reloadsAfterShow(placement)) loadFullscreen(format, placement.id)
+            if (terminated.compareAndSet(false, true)) {
+                val error = t.message ?: "show threw"
+                EventCenter.event { it.onAdShowFailed(info, error) }
+                callbacks?.onShowFailed?.let { cb -> MainThread.run { cb(error) } }
+                ad.destroy()
+                reloadAfterShow()
+            }
             return false
         }
         return true
@@ -701,19 +751,12 @@ object AdsManager {
     /**
      * Fullscreen kilidinin sonsuza dek dolu kalmasına karşı koruma. Reklam
      * activity'sinin üstüne uygulamanın kendi activity'si geldiğinde (bildirim
-     * tıklaması vb.) network dismiss callback'i hiç gelmez; bekçi kilidi açar ve
-     * tüketilmiş placement yeniden yüklenir.
+     * tıklaması vb.) network dismiss callback'i hiç gelmez; bekçi kilidi açar.
+     * Zorla açılışın uygulamaya bildirilmesi ve yeniden yükleme, gösterimi
+     * başlatan [showFullscreen] oturumunun kendi callback'inde yapılır.
      */
     private fun installFullscreenGateWatchdog(appCtx: Context) {
         (appCtx as? Application)?.let { FullscreenGateWatchdog.install(it) }
-        FullscreenGate.onForceReleased = reload@{ format, placementId, _ ->
-            val cfg = config ?: return@reload
-            val formatConfig = cfg.format(format) ?: return@reload
-            val placement = formatConfig.placement(placementId) ?: return@reload
-            if (formatConfig.reloadsAfterShow(placement)) {
-                MainThread.run { loadFullscreen(format, placement.id) }
-            }
-        }
     }
 
     private fun preloadAll() {

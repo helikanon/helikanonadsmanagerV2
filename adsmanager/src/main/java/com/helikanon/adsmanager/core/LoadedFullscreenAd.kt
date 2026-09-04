@@ -30,6 +30,15 @@ internal abstract class LoadedFullscreenAd(
     /** Reklam objesini serbest bırakır (gösterilmeden çöpe atılırsa da çağrılır). */
     open fun destroy() {}
 
+    /**
+     * Gösterim sürerken fullscreen kilidi zorla açıldığında (dismiss callback'i
+     * gelmeden) çağrılır. Adapter, "gösterimde" saydığı durumu düşürmeli ve geç
+     * gelecek SDK callback'lerinin yeni bir gösterime karışmamasını sağlamalıdır.
+     * SDK reklam objesi burada destroy edilmez; reklam activity'si hâlâ altta
+     * yaşıyor olabilir.
+     */
+    open fun onForceReleased() {}
+
     interface ShowListener {
         fun onShown(mediatedNetworkName: String?)
         fun onShowFailed(error: String)

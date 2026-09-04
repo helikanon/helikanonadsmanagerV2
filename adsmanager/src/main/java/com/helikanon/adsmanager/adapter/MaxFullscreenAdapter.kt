@@ -12,6 +12,7 @@ import com.applovin.mediation.ads.MaxInterstitialAd
 import com.applovin.mediation.ads.MaxRewardedAd
 import com.helikanon.adsmanager.config.AdFormat
 import com.helikanon.adsmanager.config.AdNetwork
+import com.helikanon.adsmanager.core.AdsLogger
 import com.helikanon.adsmanager.core.EventCenter
 import com.helikanon.adsmanager.core.FullscreenLoadCallback
 import com.helikanon.adsmanager.core.LoadedFullscreenAd
@@ -134,9 +135,18 @@ internal object MaxFullscreenAdapter {
         ttlMs: Long,
         callback: FullscreenLoadCallback
     ) {
-        // MaxRewardedAd ad unit başına singleton'dır. Show olayları, o an gösterimde olan
-        // wrapper'a haritadan yönlendirilir; böylece aynı ad unit için sonradan yapılan bir
-        // load, gösterimdeki reklamın dismiss callback'ini kaybettirmez.
+        // MaxRewardedAd ad unit başına singleton'dır ve setListener önceki dinleyiciyi
+        // değiştirir. Aynı ad unit gösterimdeyken yeni bir load başlatmak hem AppLovin'in
+        // önerdiği akışa aykırıdır (sonraki yükleme onAdHidden'da yapılmalı) hem de eski
+        // gösterimin onAdHidden/onUserRewarded olaylarını yeni wrapper'a karıştırabilir.
+        // Bu yüzden gösterim sürerken gelen load, gösterim bitene kadar ertelenir.
+        if (showingRewarded.containsKey(adUnitId)) {
+            AdsLogger.d("MAX rewarded $adUnitId is showing; deferring load until it is hidden")
+            pendingRewardedLoads.getOrPut(adUnitId) { mutableListOf() }
+                .add { loadRewarded(context, placementId, adUnitId, ttlMs, callback) }
+            return
+        }
+
         val rewarded = MaxRewardedAd.getInstance(adUnitId)
         val wrapper = LoadedMaxRewarded(rewarded, placementId, adUnitId, ttlMs)
 
@@ -144,6 +154,7 @@ internal object MaxFullscreenAdapter {
             emitRevenue(AdFormat.REWARDED, placementId, adUnitId, maxAd)
         }
         rewarded.setListener(object : MaxRewardedAdListener {
+            // Show olayları, o an gösterimde olan wrapper'a haritadan yönlendirilir.
             private fun active(): LoadedMaxRewarded? = showingRewarded[adUnitId]
 
             override fun onAdLoaded(ad: MaxAd) {
@@ -159,13 +170,15 @@ internal object MaxFullscreenAdapter {
             }
 
             override fun onAdDisplayFailed(ad: MaxAd, error: MaxError) {
-                active()?.showListener?.onShowFailed(error.message ?: "MAX display error ${error.code}")
-                showingRewarded.remove(adUnitId)
+                val listener = active()?.showListener
+                onRewardedShowFinished(adUnitId)
+                listener?.onShowFailed(error.message ?: "MAX display error ${error.code}")
             }
 
             override fun onAdHidden(ad: MaxAd) {
-                active()?.showListener?.onDismissed()
-                showingRewarded.remove(adUnitId)
+                val listener = active()?.showListener
+                onRewardedShowFinished(adUnitId)
+                listener?.onDismissed()
             }
 
             override fun onAdClicked(ad: MaxAd) {
@@ -173,7 +186,10 @@ internal object MaxFullscreenAdapter {
             }
 
             override fun onUserRewarded(ad: MaxAd, reward: MaxReward) {
-                active()?.showListener?.onRewardEarned(
+                // Ödül terminal bir olay değildir: kilit zorla açılmış olsa bile kullanıcının
+                // kazandığı ödül, gösterimi başlatan wrapper'a iletilir.
+                val target = active() ?: forceReleasedRewarded[adUnitId]
+                target?.showListener?.onRewardEarned(
                     RewardItem(reward.amount, reward.label ?: "")
                 )
             }
@@ -183,6 +199,34 @@ internal object MaxFullscreenAdapter {
 
     /** Ad unit id -> şu an gösterimde olan rewarded wrapper. */
     private val showingRewarded = mutableMapOf<String, LoadedMaxRewarded>()
+
+    /** Ad unit id -> gösterim sürerken ertelenmiş load istekleri (placement başına bir tane). */
+    private val pendingRewardedLoads = mutableMapOf<String, MutableList<() -> Unit>>()
+
+    /**
+     * Ad unit id -> kilidi zorla açılmış ama SDK'dan hidden gelmemiş wrapper. Yalnızca
+     * geç gelen ödülün yönlendirilmesi için tutulur; terminal olaylar buraya gitmez.
+     * Sonraki onAdHidden/onAdDisplayFailed ile temizlenir.
+     */
+    private val forceReleasedRewarded = mutableMapOf<String, LoadedMaxRewarded>()
+
+    /**
+     * Ad unit için gösterimin bittiğini kaydeder (hidden / display failed / zorla
+     * açılma) ve ertelenmiş load varsa başlatır. Bekleyen load, kilidin zorla
+     * açılması durumunda da tetiklenir; aksi hâlde onAdHidden hiç gelmezse
+     * placement süreç boyunca "yükleniyor" kalırdı.
+     */
+    private fun onRewardedShowFinished(
+        adUnitId: String,
+        wrapper: LoadedMaxRewarded? = null,
+        forceReleased: Boolean = false
+    ) {
+        if (wrapper != null && showingRewarded[adUnitId] !== wrapper) return
+        val finished = showingRewarded.remove(adUnitId)
+        if (forceReleased && finished != null) forceReleasedRewarded[adUnitId] = finished
+        else forceReleasedRewarded.remove(adUnitId)
+        pendingRewardedLoads.remove(adUnitId)?.forEach { it.invoke() }
+    }
 
     private class LoadedMaxRewarded(
         private val ad: MaxRewardedAd,
@@ -208,6 +252,14 @@ internal object MaxFullscreenAdapter {
         override fun destroy() {
             // MaxRewardedAd singleton'dır; destroy edilmez, sadece listener bırakılır
             showListener = null
+            onRewardedShowFinished(adUnitId, this)
+        }
+
+        override fun onForceReleased() {
+            // Kilit zorla açıldı: bu wrapper artık "gösterimde" sayılmaz. Geç gelecek
+            // onAdHidden/onUserRewarded haritada bu wrapper'ı bulamayacağı için yeni bir
+            // gösterime karışmaz. Ertelenmiş load varsa şimdi başlar.
+            onRewardedShowFinished(adUnitId, this, forceReleased = true)
         }
     }
 
