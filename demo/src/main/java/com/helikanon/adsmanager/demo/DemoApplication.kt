@@ -16,8 +16,8 @@ import com.helikanon.adsmanager.listener.RewardItem
  * bulunduğunu tek dosyada görebilmek.
  *
  * Reklamlar AdMob'un resmi TEST ad unit id'leriyle çalışır. AppLovin MAX'i denemek
- * için `applovinSdkKey`'i doldurup ilgili formatın network sırasına "applovin" ekleyin
- * ve placement'lara `applovinAdUnitId` verin.
+ * için SDK key'i `-PapplovinSdkKey=...` ile verin, ilgili formatın network sırasına
+ * "applovin" ekleyin ve placement'lara `applovinAdUnitId` verin.
  */
 class DemoApplication : Application() {
 
@@ -30,7 +30,7 @@ class DemoApplication : Application() {
             adsEnabled = true
 
             /** MAX kullanılacaksa zorunlu. null ise AppLovin waterfall adımları atlanır. (varsayılan: null) */
-            applovinSdkKey = null // örn: "«applovin-sdk-key»"
+            applovinSdkKey = BuildConfig.APPLOVIN_SDK_KEY.ifBlank { null } // -PapplovinSdkKey=... ile verilir
 
             // -------------------------------------------- gösterim kuralları
             /** İki interstitial arasındaki minimum süre. (varsayılan: 30) */
@@ -96,7 +96,7 @@ class DemoApplication : Application() {
                 /** placementId verilmeden yapılan çağrılarda kullanılır. (varsayılan: ilk eklenen placement) */
                 defaultPlacement = "inter_default"
                 /** Açılışta yüklenecekler; boşsa yalnızca defaultPlacement yüklenir. (varsayılan: boş) */
-                initialPreloadPlacements = listOf("inter_default")
+                initialPreloadPlacements = listOf("inter_default", "inter_admob_first", "inter_max_first")
 
                 placement(
                     id = "inter_default",
@@ -110,6 +110,22 @@ class DemoApplication : Application() {
                     id = "inter_level_end",
                     admobAdUnitId = "ca-app-pub-3940256099942544/1033173712",
                     preload = false
+                )
+                // Network bazlı init örneği: her placement'ın ilk adımı yalnızca kendi SDK'sı
+                // hazır olunca başlar (logda "Waterfall: waiting for APPLOVIN init ..." ve
+                // "Waterfall: loading ... (step 1/2)"). MAX ad unit'i placeholder'dır; MAX adımı
+                // fail olup AdMob'a düşer. SDK key verilmezse MAX adımları atlanır.
+                placement(
+                    id = "inter_admob_first",
+                    admobAdUnitId = "ca-app-pub-3940256099942544/1033173712",
+                    applovinAdUnitId = "«max-interstitial-ad-unit-id»",
+                    networkOrder = listOf(AdNetwork.ADMOB, AdNetwork.APPLOVIN)
+                )
+                placement(
+                    id = "inter_max_first",
+                    admobAdUnitId = "ca-app-pub-3940256099942544/1033173712",
+                    applovinAdUnitId = "«max-interstitial-ad-unit-id»",
+                    networkOrder = listOf(AdNetwork.APPLOVIN, AdNetwork.ADMOB)
                 )
             }
 
@@ -163,7 +179,7 @@ class DemoApplication : Application() {
             }
         }
 
-        // onReady: SDK init + ilk preload'lar tamamlandığında çağrılır (opsiyonel).
+        // onReady: tüm SDK'ların init'i bitince çağrılır (opsiyonel). Preload'lar bunu beklemez.
         AdsManager.initialize(this, config) {
             Log.d("Demo", "AdsManager hazır")
         }

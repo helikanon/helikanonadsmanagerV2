@@ -14,6 +14,7 @@ import com.helikanon.adsmanager.config.FormatConfig
 import com.helikanon.adsmanager.config.PlacementConfig
 import com.helikanon.adsmanager.core.AdsLogger
 import com.helikanon.adsmanager.core.EventCenter
+import com.helikanon.adsmanager.core.InitManager
 import com.helikanon.adsmanager.core.MainThread
 import com.helikanon.adsmanager.core.RetryScheduler
 import com.helikanon.adsmanager.listener.AdInfo
@@ -31,7 +32,7 @@ internal object BannerLoader {
         placement: PlacementConfig
     ) {
         val candidates = formatConfig.networkOrderFor(placement)
-            .filter { it != AdNetwork.APPLOVIN || com.helikanon.adsmanager.core.InitManager.applovinUsable }
+            .filter { it != AdNetwork.APPLOVIN || InitManager.applovinUsable }
             .mapNotNull { network -> placement.adUnitIdFor(network)?.let { network to it } }
 
         if (candidates.isEmpty()) {
@@ -83,6 +84,20 @@ internal object BannerLoader {
         }
 
         val (network, adUnitId) = candidates[index]
+        // Adım yalnızca kendi network'ünü bekler; hazır olunca aynı adım (context kontrolüyle) yeniden denenir
+        if (!InitManager.isReady(network)) {
+            AdsLogger.d("Banner waterfall: waiting for $network init before loading '${placement.id}' (step ${index + 1}/${candidates.size})")
+            InitManager.runWhenReady(network) {
+                attemptAt(contextRef, controller, type, config, formatConfig, placement, candidates, index, errors)
+            }
+            return
+        }
+        // SDK key'i olmayan AppLovin init'te anlaşılır; init'ten önce kurulan waterfall'da adım burada atlanır
+        if (network == AdNetwork.APPLOVIN && !InitManager.applovinUsable) {
+            errors.add("$network: applovinSdkKey not set")
+            attemptAt(contextRef, controller, type, config, formatConfig, placement, candidates, index + 1, errors)
+            return
+        }
         AdsLogger.d("Banner waterfall: loading '${placement.id}' from $network (step ${index + 1}/${candidates.size})")
 
         var settled = false

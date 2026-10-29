@@ -12,13 +12,17 @@ import com.helikanon.adsmanager.config.AdsConfig
 
 /**
  * AdMob ve AppLovin SDK'larını asenkron initialize eder.
- * Init tamamlanmadan gelen load/show istekleri kuyruklanır ve init bitince çalıştırılır.
+ *
+ * Hazır olma network bazındadır: waterfall adımları yalnızca kendi network'lerinin hazır
+ * olmasını bekler (network'lü [runWhenReady]), yavaş açılan diğer SDK'yı beklemez.
+ * [isReady] ve network'süz [runWhenReady] ise tüm SDK'ların init'inin bitmesini bekler.
  */
 internal object InitManager {
 
-    @Volatile
-    var isReady: Boolean = false
-        private set
+    private val readiness = NetworkReadiness()
+
+    /** Tüm SDK'ların init callback'i döndü mü (ya da 20 sn zaman aşımı doldu mu)? */
+    val isReady: Boolean get() = readiness.allReady
 
     /** AppLovin kullanılabilir mi? (SDK key verilmemişse false; waterfall MAX adımlarını atlar.) */
     @Volatile
@@ -26,8 +30,9 @@ internal object InitManager {
         private set
 
     private var initStarted = false
-    private val pendingActions = mutableListOf<() -> Unit>()
-    private var remainingNetworks = 0
+
+    /** Init callback'i henüz dönmemiş network'ler; boşalınca tüm SDK'lar hazırdır. */
+    private val initPending = mutableSetOf<AdNetwork>()
     private var onAllReady: (() -> Unit)? = null
 
     fun initialize(context: Context, config: AdsConfig, onComplete: (() -> Unit)? = null) {
@@ -47,15 +52,18 @@ internal object InitManager {
                 return@run
             }
 
-            remainingNetworks = networks.size
+            initPending += networks
             if (config.testMode) warnMissingTestDeviceIds(config, networks)
             if (AdNetwork.ADMOB in networks) initAdMob(appContext, config)
             if (AdNetwork.APPLOVIN in networks) initAppLovin(appContext, config)
 
-            // Güvenlik ağı: bir SDK'nın init callback'i hiç dönmezse kuyruğu sonsuza dek bekletme
+            // Güvenlik ağı: init callback'i hiç dönmeyen network kendi adımlarını ve tüm
+            // SDK'ları bekleyen işleri sonsuza dek bekletmesin; 20 sn sonra hazır sayılır.
             MainThread.runDelayed(20_000) {
                 if (!isReady) {
-                    AdsLogger.w("SDK init timed out after 20s; proceeding with pending actions")
+                    initPending.forEach {
+                        AdsLogger.w("$it SDK init timed out after 20s; proceeding with pending actions")
+                    }
                     markAllReady()
                 }
             }
@@ -101,13 +109,16 @@ internal object InitManager {
             MobileAds.initialize(context) { initStatus ->
                 MainThread.run {
                     AdsLogger.i("AdMob initialized: ${initStatus.adapterStatusMap.keys.size} adapters")
-                    networkReady()
+                    initFinished(AdNetwork.ADMOB)
                 }
             }
         } catch (e: Exception) {
             AdsLogger.e("AdMob init failed", e)
-            MainThread.run { networkReady() }
+            MainThread.run { initFinished(AdNetwork.ADMOB) }
         }
+        // AdMob mediation'sız kullanıldığı için yüklemeler init callback'ini beklemez
+        // (Google: callback'i beklemek yalnızca mediation adapter'ları için gerekir).
+        readiness.markReady(AdNetwork.ADMOB)
     }
 
     private fun initAppLovin(context: Context, config: AdsConfig) {
@@ -115,7 +126,7 @@ internal object InitManager {
         if (sdkKey.isNullOrBlank()) {
             AdsLogger.e("AppLovin is in networkOrder but applovinSdkKey is not set! AppLovin will be skipped in waterfalls.")
             applovinUsable = false
-            MainThread.run { networkReady() }
+            MainThread.run { initFinished(AdNetwork.APPLOVIN) }
             return
         }
         applovinUsable = true
@@ -137,35 +148,40 @@ internal object InitManager {
             sdk.initialize(initConfig) {
                 MainThread.run {
                     AdsLogger.i("AppLovin MAX initialized")
-                    networkReady()
+                    initFinished(AdNetwork.APPLOVIN)
                 }
             }
         } catch (e: Exception) {
             AdsLogger.e("AppLovin init failed", e)
-            MainThread.run { networkReady() }
+            MainThread.run { initFinished(AdNetwork.APPLOVIN) }
         }
     }
 
-    private fun networkReady() {
-        remainingNetworks--
-        if (remainingNetworks <= 0) markAllReady()
+    /** Network'ün init'i bitti (callback döndü, init hata verdi ya da network kullanılamıyor). */
+    private fun initFinished(network: AdNetwork) {
+        readiness.markReady(network)
+        initPending.remove(network)
+        if (initPending.isEmpty()) markAllReady()
     }
 
     private fun markAllReady() {
         if (isReady) return
-        isReady = true
-        AdsLogger.i("All ad SDKs ready, flushing ${pendingActions.size} pending action(s)")
-        val actions = pendingActions.toList()
-        pendingActions.clear()
-        actions.forEach { it() }
+        AdsLogger.i("All ad SDKs ready, flushing ${readiness.pendingCount} pending action(s)")
+        readiness.markAllReady()
         onAllReady?.invoke()
         onAllReady = null
     }
 
-    /** Init bittiyse hemen, bitmediyse init sonrası main thread'de çalıştırır. */
+    /** Tüm SDK'lar hazırsa hemen, değilse hepsi hazır olunca main thread'de çalıştırır. */
     fun runWhenReady(action: () -> Unit) {
-        MainThread.run {
-            if (isReady) action() else pendingActions.add(action)
-        }
+        MainThread.run { readiness.runWhenReady(null, action) }
     }
+
+    /** [network] hazırsa hemen, değilse yalnızca o network hazır olunca main thread'de çalıştırır. */
+    fun runWhenReady(network: AdNetwork, action: () -> Unit) {
+        MainThread.run { readiness.runWhenReady(network, action) }
+    }
+
+    /** [network] ile yükleme başlatılabilir mi? Main thread'den çağrılır. */
+    fun isReady(network: AdNetwork): Boolean = readiness.isReady(network)
 }

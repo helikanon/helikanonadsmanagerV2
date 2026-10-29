@@ -152,10 +152,9 @@ object AdsManager {
             return
         }
         sdksStarted = true
-        InitManager.initialize(ctx, cfg) {
-            preloadAll()
-            onReady?.invoke()
-        }
+        InitManager.initialize(ctx, cfg, onReady)
+        // Preload'lar tüm SDK'ları beklemez: her waterfall adımı yalnızca kendi network'ünün init'ini bekler
+        preloadAll()
     }
 
     /**
@@ -449,7 +448,7 @@ object AdsManager {
                 if (!cached.isAdLoaded && !cached.isLoadActive) {
                     RetryScheduler.cancel(AdFormat.BANNER, placement.id)
                     cached.isLoadActive = true
-                    InitManager.runWhenReady {
+                    MainThread.run {
                         if (!cached.isDestroyed) {
                             BannerLoader.load(loadContext, cached, type, cfg, formatConfig, placement)
                         }
@@ -470,7 +469,8 @@ object AdsManager {
         // Yeni loadBanner çağrısı retry sayacını sıfırlar
         RetryScheduler.cancel(AdFormat.BANNER, placement.id)
         controller.isLoadActive = true
-        InitManager.runWhenReady {
+        // SDK init'i beklemez: banner waterfall'unun her adımı kendi network'ünün init'ini bekler
+        MainThread.run {
             if (!controller.isDestroyed) {
                 BannerLoader.load(loadContext, controller, type, cfg, formatConfig, placement)
             }
@@ -541,37 +541,37 @@ object AdsManager {
             }
             AdRepository.markLoading(format, placement.id)
 
-            InitManager.runWhenReady {
-                if (!ConnectivityMonitor.isOnline) {
-                    AdsLogger.d("Offline; will load $format/${placement.id} when connection returns")
-                    AdRepository.clearLoading(format, placement.id)
-                    ConnectivityMonitor.addOnlineListenerOnce("$format:${placement.id}") {
-                        loadFullscreen(format, placement.id, isAutoPreload)
-                    }
-                    return@runWhenReady
+            if (!ConnectivityMonitor.isOnline) {
+                AdsLogger.d("Offline; will load $format/${placement.id} when connection returns")
+                AdRepository.clearLoading(format, placement.id)
+                ConnectivityMonitor.addOnlineListenerOnce("$format:${placement.id}") {
+                    loadFullscreen(format, placement.id, isAutoPreload)
                 }
+                return@run
+            }
 
-                WaterfallLoader.loadFullscreen(ctx, cfg, formatConfig, placement) { ad, error ->
-                    AdRepository.clearLoading(format, placement.id)
-                    if (ad != null) {
-                        RetryScheduler.onLoadSuccess(format, placement.id)
-                        AdRepository.put(ad)
-                        EventCenter.event {
-                            it.onAdLoaded(AdInfo(format, placement.id, ad.network, ad.adUnitId))
-                        }
-                    } else {
-                        val err = error ?: "unknown error"
-                        EventCenter.event { it.onAdLoadFailed(format, placement.id, err) }
-                        // Preload açıksa exponential backoff ile otomatik yeniden dene.
-                        // reloadAfterShow=false olan tek kullanımlık placement'larda (ör. splash)
-                        // retry döngüsü kurulmaz; o slot oturumda bir kez kullanıldığı için
-                        // arka planda sonsuza dek request atmasının anlamı yok.
-                        if (formatConfig.reloadsAfterShow(placement)) {
-                            RetryScheduler.scheduleRetry(
-                                format, placement.id, cfg.retryBaseDelaySec, cfg.retryMaxDelaySec
-                            ) {
-                                loadFullscreen(format, placement.id, isAutoPreload = true)
-                            }
+            // SDK init'i burada beklenmez: waterfall'un her adımı yalnızca kendi network'ünün
+            // init'ini bekler. Bekleme boyunca loading işareti kalır, istek tekrar kuyruğa girmez.
+            WaterfallLoader.loadFullscreen(ctx, cfg, formatConfig, placement) { ad, error ->
+                AdRepository.clearLoading(format, placement.id)
+                if (ad != null) {
+                    RetryScheduler.onLoadSuccess(format, placement.id)
+                    AdRepository.put(ad)
+                    EventCenter.event {
+                        it.onAdLoaded(AdInfo(format, placement.id, ad.network, ad.adUnitId))
+                    }
+                } else {
+                    val err = error ?: "unknown error"
+                    EventCenter.event { it.onAdLoadFailed(format, placement.id, err) }
+                    // Preload açıksa exponential backoff ile otomatik yeniden dene.
+                    // reloadAfterShow=false olan tek kullanımlık placement'larda (ör. splash)
+                    // retry döngüsü kurulmaz; o slot oturumda bir kez kullanıldığı için
+                    // arka planda sonsuza dek request atmasının anlamı yok.
+                    if (formatConfig.reloadsAfterShow(placement)) {
+                        RetryScheduler.scheduleRetry(
+                            format, placement.id, cfg.retryBaseDelaySec, cfg.retryMaxDelaySec
+                        ) {
+                            loadFullscreen(format, placement.id, isAutoPreload = true)
                         }
                     }
                 }

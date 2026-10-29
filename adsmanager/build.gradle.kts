@@ -81,6 +81,9 @@ dependencies {
     implementation("com.applovin.mediation:mintegral-adapter:17.1.81.0") // Mintegral
     implementation("com.applovin.mediation:bytedance-adapter:8.2.0.4.0") // Pangle (ByteDance)
     implementation("com.applovin.mediation:unityads-adapter:4.20.0.0")   // Unity Ads
+
+    // ---- JVM unit test (./gradlew :adsmanager:testDebugUnitTest) ----
+    testImplementation("junit:junit:4.13.2")
 }
 
 // ---- Yayinlama (JitPack) ----

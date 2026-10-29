@@ -12,6 +12,10 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
+
+        // MAX'i denemek için SDK key repoya yazılmadan verilir:
+        // ./gradlew :demo:installDebug -PapplovinSdkKey=...
+        buildConfigField("String", "APPLOVIN_SDK_KEY", "\"${providers.gradleProperty("applovinSdkKey").getOrElse("")}\"")
     }
 
     buildTypes {

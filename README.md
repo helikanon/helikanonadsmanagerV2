@@ -45,7 +45,7 @@ dependencyResolutionManagement {
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("com.github.helikanon:helikanonadsmanagerV2:1.4.0")
+    implementation("com.github.helikanon:helikanonadsmanagerV2:1.5.0")
 }
 ```
 
@@ -198,6 +198,13 @@ val config = AdsConfig.build {
 
 AdsManager.initialize(this, config)
 ```
+
+SDK'lar arka planda başlatılır; açılış preload'ları init'in bitmesini beklemeden tetiklenir.
+Her waterfall adımı yalnızca kendi network'ünün hazır olmasını bekler: AdMob mediation'sız
+kullanıldığı için `MobileAds.initialize()` çağrılır çağrılmaz, AppLovin MAX ise kendi init
+callback'i dönünce hazır sayılır (ayrıntı: Davranış Kuralları → **Network bazlı init**).
+`initialize(this, config) { ... }` ile verilen opsiyonel callback ise tüm SDK'ların init'i
+bitince çağrılır.
 
 ### UMP consent (GDPR)
 
@@ -420,7 +427,7 @@ AdsManager.setRewardedSsvOptions(userId, customData)  // AdMob rewarded SSV
 - **Fullscreen kilidi bekçisi:** Kilit normalde network'ün dismiss/show-failed callback'iyle açılır. Reklam activity'sinin üstüne uygulamanın kendi activity'si gelirse (ör. interstitial açıkken bildirime dokunulup Splash/Main yeniden başlatılırsa) bu callback hiç gelmez. Bu durumda kilit, reklam SDK'sına ait olmayan bir activity resume olduğunda zorla açılır (`FullscreenGate force-released` uyarısı). Reklam activity'si ön planda değilken kilit en geç 5 dk sonra da açılır; reklam activity'si hâlâ ön plandaysa (uzun rewarded, reklam tıklamasıyla tarayıcıya gidilmesi) süre uzatılır, gerçek reklamın kilidi bırakılmaz. Zorla açılış uygulamaya tek seferlik terminal callback olarak iletilir: reklam gösterilmişse `onDismissed`, henüz gösterilmemişse `onShowFailed`; sonradan gelen gerçek dismiss callback'i yoksayılır (geç gelen ödül yine iletilir). Tüketilen placement `reloadAfterShow` kuralına göre yeniden yüklenir; MAX rewarded için aynı ad unit gösterimdeyken yükleme, gösterim bitene kadar ertelenir. Uygulama tarafında bildirim intent'lerinde `CLEAR_TOP` yerine launcher bayrakları (`NEW_TASK | RESET_TASK_IF_NEEDED`) kullanmak sorunun oluşmasını baştan engeller.
 - **App open koruması:** Interstitial/rewarded açıkken app open gösterilmez; son inter/rewarded gösteriminden `appOpenMinGapSec`, son app open gösteriminden `appOpenMinIntervalSec` geçmeden app open gösterilmez.
 - **Offline:** Bağlantı yokken load bekletilir, bağlantı gelince otomatik tetiklenir.
-- **Init kuyruğu:** SDK init'i bitmeden yapılan çağrılar kuyruklanır, init bitince çalışır.
+- **Network bazlı init:** Her waterfall adımı (fullscreen ve banner) yalnızca kendi network'ünün SDK'sı hazır olunca başlar; yavaş açılan diğer SDK'yı beklemez. AdMob mediation'sız kullanıldığı için `MobileAds.initialize()` çağrılır çağrılmaz hazır sayılır, init callback'i yalnızca loglanır (Google'a göre callback'i beklemek mediation adapter'ları için gerekir). AppLovin MAX ise kendi init callback'i dönünce hazır olur; MAX'e bundan önce istek atılmaz. Örneğin `admob,applovin` sıralı splash placement'ı AdMob'dan hemen yüklemeye başlar; AdMob fail olursa MAX adımı gerekiyorsa MAX init'ini bekler (debug logu: `Waterfall: waiting for APPLOVIN init ...`). SDK key'i verilmemiş AppLovin hemen hazır sayılır ve adımları atlanır. Init callback'i 20 sn içinde dönmeyen network hazır sayılır (`... SDK init timed out after 20s` uyarısı). SDK'lar başlamadan (ör. UMP consent beklenirken) yapılan çağrılar ilgili network hazır olunca çalışır. `initialize(..., onReady)` callback'i tüm SDK'ların init callback'i dönünce (veya 20 sn dolunca) çağrılır.
 - **Kill switch:** `adsEnabled` (global) → format `enabled` → placement `enabled` hiyerarşisiyle kapatma.
 - Tüm callback'ler main thread'de çağrılır.
 
@@ -428,9 +435,18 @@ AdsManager.setRewardedSsvOptions(userId, customData)  // AdMob rewarded SSV
 
 ## 5. Demo
 
-`demo` modülü AdMob'un resmi test ad unit'leriyle çalışır. AppLovin'i test etmek için
-`DemoApplication` içine SDK key'inizi ve MAX ad unit id'lerinizi girin,
-`networkOrderString`'i `"admob,applovin"` yapın.
+`demo` modülü AdMob'un resmi test ad unit'leriyle çalışır. AppLovin MAX'i denemek için SDK
+key'inizi repoya yazmadan Gradle property'si olarak verin:
+
+```bash
+./gradlew :demo:installDebug -PapplovinSdkKey=YOUR_SDK_KEY
+```
+
+Açılışta `inter_admob_first` (`admob,applovin`) ve `inter_max_first` (`applovin,admob`)
+placement'ları da yüklenir. Logcat'te (`AdsManager` tag'i) ilkinin AdMob adımının hemen,
+ikincisinin MAX adımının `AppLovin MAX initialized` satırından hemen sonra başladığı görülür.
+Gerçek MAX reklamı için placement'lara kendi MAX ad unit id'lerinizi girin; key verilmezse
+MAX adımları atlanır.
 
 ---
 

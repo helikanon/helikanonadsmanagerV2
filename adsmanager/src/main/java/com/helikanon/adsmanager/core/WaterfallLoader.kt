@@ -2,6 +2,7 @@ package com.helikanon.adsmanager.core
 
 import android.content.Context
 import com.helikanon.adsmanager.adapter.Adapters
+import com.helikanon.adsmanager.config.AdNetwork
 import com.helikanon.adsmanager.config.AdsConfig
 import com.helikanon.adsmanager.config.FormatConfig
 import com.helikanon.adsmanager.config.PlacementConfig
@@ -9,6 +10,7 @@ import com.helikanon.adsmanager.config.PlacementConfig
 /**
  * Format için tanımlı network sırasına göre (waterfall) reklam yükler.
  *
+ * - Her adım yalnızca kendi network'ünün SDK'sı hazır olunca başlar; diğer SDK'yı beklemez.
  * - Sıradaki network fail olursa veya timeout'a takılırsa bir sonrakine geçer.
  * - Bir network başarılı yüklediğinde durur; diğer networkler DENENMEZ.
  * - Tüm networkler fail olursa hata döner.
@@ -23,7 +25,7 @@ internal object WaterfallLoader {
         onResult: (LoadedFullscreenAd?, String?) -> Unit
     ) {
         val candidates = formatConfig.networkOrderFor(placement)
-            .filter { it != com.helikanon.adsmanager.config.AdNetwork.APPLOVIN || InitManager.applovinUsable }
+            .filter { it != AdNetwork.APPLOVIN || InitManager.applovinUsable }
             .mapNotNull { network -> placement.adUnitIdFor(network)?.let { network to it } }
 
         if (candidates.isEmpty()) {
@@ -39,7 +41,7 @@ internal object WaterfallLoader {
         config: AdsConfig,
         formatConfig: FormatConfig,
         placement: PlacementConfig,
-        candidates: List<Pair<com.helikanon.adsmanager.config.AdNetwork, String>>,
+        candidates: List<Pair<AdNetwork, String>>,
         index: Int,
         errors: MutableList<String>,
         onResult: (LoadedFullscreenAd?, String?) -> Unit
@@ -51,6 +53,20 @@ internal object WaterfallLoader {
 
         val (network, adUnitId) = candidates[index]
         val format = formatConfig.format
+        // Adım yalnızca kendi network'ünü bekler; network hazır olunca aynı adım yeniden denenir
+        if (!InitManager.isReady(network)) {
+            AdsLogger.d("Waterfall: waiting for $network init before loading $format/${placement.id} (step ${index + 1}/${candidates.size})")
+            InitManager.runWhenReady(network) {
+                attemptAt(context, config, formatConfig, placement, candidates, index, errors, onResult)
+            }
+            return
+        }
+        // SDK key'i olmayan AppLovin init'te anlaşılır; init'ten önce kurulan waterfall'da adım burada atlanır
+        if (network == AdNetwork.APPLOVIN && !InitManager.applovinUsable) {
+            errors.add("$network: applovinSdkKey not set")
+            attemptAt(context, config, formatConfig, placement, candidates, index + 1, errors, onResult)
+            return
+        }
         AdsLogger.d("Waterfall: loading $format/${placement.id} from $network (step ${index + 1}/${candidates.size})")
 
         var settled = false
