@@ -251,17 +251,22 @@ tarafı MAX moduyla aynıdır. Config'de:
 
 ### UMP consent (GDPR)
 
-`umpConsentEnabled = true` ise ilk açılışta SDK'lar consent alınana kadar başlatılmaz.
-İlk Activity'de (örn. Splash):
+`umpConsentEnabled = true` ise SDK'ları `initialize` değil `gatherConsent` başlatır.
+Her açılışta ilk Activity'de (örn. Splash) çağırın:
 
 ```kotlin
 AdsManager.gatherConsent(this) { canRequestAds ->
-    // form gösterildiyse kapandı; SDK'lar başlatıldı, preload'lar tetiklendi
+    // form gösterildiyse kapandı; consent varsa SDK'lar başlatıldı, preload'lar tetiklendi
 }
 ```
 
-Sonraki açılışlarda consent kayıtlı olduğu için `initialize` SDK'ları hemen başlatır;
-`gatherConsent` yine çağrılabilir (Google her açılışta güncellemeyi önerir, form gerekmedikçe görünmez).
+Önceki oturumda onay alınmışsa SDK'lar `gatherConsent` çağrıldığı anda, UMP cevabı beklenmeden
+başlar. UMP'nin `canRequestAds()` değeri, oturumda bilgi güncellemesi istenene kadar `false`
+döndüğü için `initialize` bunu kendisi bilemez. İlk açılışta SDK'lar form kapanınca başlar; form
+gerekmedikçe görünmez.
+
+`gatherConsent`'e verilen activity'yi `onComplete` gelmeden finish etmeyin. Edilirse form bu
+oturumda gösterilmez; bir sonraki `gatherConsent` çağrısında gösterilir.
 
 Ayarlar ekranı için: `AdsManager.isPrivacyOptionsRequired(context)` ve `AdsManager.showPrivacyOptionsForm(activity)`.
 

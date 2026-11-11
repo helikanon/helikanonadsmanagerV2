@@ -54,11 +54,18 @@ internal object ConsentManager {
             activity,
             paramsBuilder.build(),
             {
-                UserMessagingPlatform.loadAndShowConsentFormIfRequired(activity) { formError ->
-                    if (formError != null) {
-                        AdsLogger.w("UMP consent form error: ${formError.errorCode} ${formError.message}")
-                    }
+                // Güncelleme sürerken activity kapandıysa form yüklenmez: ölü activity'ye yüklenen form
+                // WebView'i native çökme yapabiliyor. Form, sonraki gatherConsent çağrısında gösterilir.
+                if (activity.isFinishing || activity.isDestroyed) {
+                    AdsLogger.w("Activity finished before UMP consent info update; skipping consent form")
                     onComplete(info.canRequestAds())
+                } else {
+                    UserMessagingPlatform.loadAndShowConsentFormIfRequired(activity) { formError ->
+                        if (formError != null) {
+                            AdsLogger.w("UMP consent form error: ${formError.errorCode} ${formError.message}")
+                        }
+                        onComplete(info.canRequestAds())
+                    }
                 }
             },
             { requestError ->

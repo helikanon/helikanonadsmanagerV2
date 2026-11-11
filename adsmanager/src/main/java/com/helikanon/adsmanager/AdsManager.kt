@@ -65,6 +65,8 @@ object AdsManager {
     private var config: AdsConfig? = null
     private var appContext: Context? = null
     private var sdksStarted = false
+    /** UMP onayı beklenirken [initialize]'a verilen onReady; SDK'lar başlayınca kullanılır. */
+    private var pendingOnReady: (() -> Unit)? = null
 
     /**
      * JSON config'e her parse sonrası uygulanan, koddan verilen ayarlar
@@ -82,9 +84,9 @@ object AdsManager {
     /**
      * Kütüphaneyi başlatır. Application.onCreate içinde çağrılmalıdır.
      *
-     * `umpConsentEnabled = true` ise SDK'lar consent akışı tamamlanana kadar başlatılmaz;
-     * ilk Activity'de [gatherConsent] çağrılmalıdır. (Sonraki açılışlarda consent
-     * kayıtlı olduğundan SDK'lar hemen başlar.)
+     * `umpConsentEnabled = true` ise SDK'ları [gatherConsent] başlatır; ilk Activity'de
+     * çağrılmalıdır. Önceki oturumdan onay varsa SDK'lar UMP cevabı beklenmeden,
+     * gatherConsent çağrıldığı anda başlar. [onReady] bu durumda da SDK'lar hazır olunca çağrılır.
      */
     @JvmStatic
     @JvmOverloads
@@ -105,8 +107,11 @@ object AdsManager {
             return
         }
 
+        // UMP canRequestAds(), bu oturumda requestConsentInfoUpdate çağrılana kadar false döner;
+        // önceki onay olsa da SDK'ları gatherConsent başlatır.
         if (config.umpConsentEnabled && !ConsentManager.canRequestAds(appCtx)) {
-            AdsLogger.i("UMP consent required; waiting for gatherConsent() before starting SDKs")
+            AdsLogger.i("UMP consent enabled; waiting for gatherConsent() to start SDKs")
+            pendingOnReady = onReady
             return
         }
 
@@ -147,12 +152,14 @@ object AdsManager {
     private fun startSdks(onReady: (() -> Unit)? = null) {
         val ctx = appContext ?: return
         val cfg = config ?: return
+        val ready = onReady ?: pendingOnReady
+        pendingOnReady = null
         if (sdksStarted) {
-            onReady?.invoke()
+            ready?.invoke()
             return
         }
         sdksStarted = true
-        InitManager.initialize(ctx, cfg, onReady)
+        InitManager.initialize(ctx, cfg, ready)
         // Preload'lar tüm SDK'ları beklemez: her waterfall adımı yalnızca kendi network'ünün init'ini bekler
         preloadAll()
     }
@@ -256,7 +263,10 @@ object AdsManager {
 
     /**
      * GDPR (UMP) consent akışını çalıştırır; gerekiyorsa consent formu gösterilir.
-     * Akış bitince (veya consent zaten varsa) SDK'lar başlatılır ve preload'lar tetiklenir.
+     * Önceki oturumdan onay varsa SDK'lar hemen (UMP cevabı beklenmeden), yoksa akış bitince
+     * başlatılır ve preload'lar tetiklenir.
+     *
+     * [activity], [onComplete] gelmeden finish edilmemelidir; edilirse form bu oturumda gösterilmez.
      */
     @JvmStatic
     @JvmOverloads
@@ -277,6 +287,12 @@ object AdsManager {
                 if (canRequest && cfg.adsEnabled) startSdks()
                 onComplete?.invoke(canRequest)
             }
+        }
+        // requestConsentInfoUpdate çağrıldı; canRequestAds artık önceki oturumun onayını yansıtır.
+        // Google'ın önerdiği gibi UMP cevabını beklemeden SDK'ları başlat.
+        if (cfg.adsEnabled && !sdksStarted && ConsentManager.canRequestAds(activity)) {
+            AdsLogger.i("Consent from previous session; starting SDKs without waiting for UMP update")
+            startSdks()
         }
     }
 
