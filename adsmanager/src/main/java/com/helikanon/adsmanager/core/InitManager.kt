@@ -1,6 +1,7 @@
 package com.helikanon.adsmanager.core
 
 import android.content.Context
+import android.content.pm.PackageManager
 import com.applovin.sdk.AppLovinMediationProvider
 import com.applovin.sdk.AppLovinPrivacySettings
 import com.applovin.sdk.AppLovinSdk
@@ -116,9 +117,20 @@ internal object InitManager {
             AdsLogger.e("AdMob init failed", e)
             MainThread.run { initFinished(AdNetwork.ADMOB) }
         }
-        // AdMob mediation'sız kullanıldığı için yüklemeler init callback'ini beklemez
-        // (Google: callback'i beklemek yalnızca mediation adapter'ları için gerekir).
-        readiness.markReady(AdNetwork.ADMOB)
+        // Mediation'sız AdMob'da yüklemeler init callback'ini beklemez (Google: beklemek yalnızca
+        // mediation adapter'ları için gerekir). adsmanager-admob ile ise adaptörler ilk isteğe teklif
+        // verebilsin diye callback beklenir; hazır işaretini initFinished koyar.
+        if (!usesAdMobMediation(context)) readiness.markReady(AdNetwork.ADMOB)
+    }
+
+    /** adsmanager-admob modülü bu işareti manifest'e ekler (o modülün AndroidManifest.xml'i). */
+    private fun usesAdMobMediation(context: Context): Boolean = try {
+        @Suppress("DEPRECATION")
+        context.packageManager.getApplicationInfo(context.packageName, PackageManager.GET_META_DATA)
+            .metaData?.getBoolean("com.helikanon.adsmanager.ADMOB_MEDIATION") == true
+    } catch (e: Exception) {
+        AdsLogger.w("Could not read AdMob mediation flag from manifest: ${e.message}")
+        false
     }
 
     private fun initAppLovin(context: Context, config: AdsConfig) {

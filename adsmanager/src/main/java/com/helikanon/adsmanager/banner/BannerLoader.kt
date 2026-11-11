@@ -31,9 +31,8 @@ internal object BannerLoader {
         formatConfig: FormatConfig,
         placement: PlacementConfig
     ) {
-        val candidates = formatConfig.networkOrderFor(placement)
-            .filter { it != AdNetwork.APPLOVIN || InitManager.applovinUsable }
-            .mapNotNull { network -> placement.adUnitIdFor(network)?.let { network to it } }
+        val candidates = formatConfig.waterfallSteps(placement)
+            .filter { it.first != AdNetwork.APPLOVIN || InitManager.applovinUsable }
 
         if (candidates.isEmpty()) {
             controller.isLoadActive = false
@@ -98,7 +97,7 @@ internal object BannerLoader {
             attemptAt(contextRef, controller, type, config, formatConfig, placement, candidates, index + 1, errors)
             return
         }
-        AdsLogger.d("Banner waterfall: loading '${placement.id}' from $network (step ${index + 1}/${candidates.size})")
+        AdsLogger.d("Banner waterfall: loading '${placement.id}' from $network $adUnitId (step ${index + 1}/${candidates.size})")
 
         var settled = false
         var inFlight: BannerHandle? = null

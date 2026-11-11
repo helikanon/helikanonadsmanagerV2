@@ -28,7 +28,10 @@ data class AdRevenue(
     val currency: String,
     /** "PRECISE" / "ESTIMATED" / "PUBLISHER_PROVIDED" / "UNKNOWN" */
     val precision: String,
-    /** Reklamı dolduran alt network adı (MAX'te mediated network, AdMob'da "admob"). */
+    /**
+     * Reklamı dolduran alt network adı: MAX'te mediated network; AdMob'da kendi talebi için "admob",
+     * AdMob mediation'da dolduran ağın adı (ör. "Meta Audience Network").
+     */
     val mediatedNetworkName: String?
 )
 

@@ -60,7 +60,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
 
     // ---- Google AdMob (legacy GMA SDK) ----
-    // Not: 25.4.0, AppLovin google-adapter 25.4.0.0 ile sertifikasyon uyumu için seçildi.
+    // Not: 25.4.0, hem AppLovin google-adapter 25.4.0.0 hem de Google mediation
+    // adaptörleri (adsmanager-admob) ile sertifikasyon uyumu için seçildi.
     api("com.google.android.gms:play-services-ads:25.4.0")
     // Google UMP (GDPR consent)
     api("com.google.android.ump:user-messaging-platform:4.0.0")
@@ -68,22 +69,13 @@ dependencies {
     // ---- AppLovin MAX ----
     api("com.applovin:applovin-sdk:13.6.4")
 
-    // ---- AppLovin MAX mediation adapters ----
-    // google-adapter sürümü GMA sürümüyle eşleşmeli (x.y.z.n -> GMA x.y.z).
-    implementation("com.applovin.mediation:google-adapter:25.4.0.0") // AdMob
-    // AppLovin "+" (en guncel) onerir; ancak bu kutuphane JitPack uzerinden
-    // yayinlandigi icin surumler sabitlenir: aksi halde tuketici her build'de
-    // farkli bir adaptor surumu cekebilir ve build tekrarlanabilir olmaz.
-    // Yeni surum cikarirken bu bloku elden gecir (bkz. AppLovin MAX changelog).
-    implementation("com.applovin.mediation:fyber-adapter:8.4.7.0")       // DT Exchange (Fyber)
-    implementation("com.applovin.mediation:vungle-adapter:7.7.7.1")      // Liftoff (Vungle)
-    implementation("com.applovin.mediation:facebook-adapter:6.22.0.0")   // Meta Audience Network
-    implementation("com.applovin.mediation:mintegral-adapter:17.1.81.0") // Mintegral
-    implementation("com.applovin.mediation:bytedance-adapter:8.2.0.4.0") // Pangle (ByteDance)
-    implementation("com.applovin.mediation:unityads-adapter:4.20.0.0")   // Unity Ads
+    // Mediation adaptörleri burada değil: MAX için adsmanager-max, AdMob mediation için
+    // adsmanager-admob. Bir uygulamada iki aile birden olmamalı (aynı ağ SDK'sı çakışır).
 
     // ---- JVM unit test (./gradlew :adsmanager:testDebugUnitTest) ----
     testImplementation("junit:junit:4.13.2")
+    // android.jar'daki org.json stub'dır; JSON parser testleri gerçek implementasyonu kullanır.
+    testImplementation("org.json:json:20260814")
 }
 
 // ---- Yayinlama (JitPack) ----

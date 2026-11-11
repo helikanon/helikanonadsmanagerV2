@@ -59,6 +59,8 @@ import org.json.JSONObject
  * hem format hem placement seviyesinde verilebilir; placement'taki değer format sırasını ezer.
  *
  * Placement seviyesindeki ek anahtarlar:
+ * - `admob` / `applovin`: tek id (`"..."`) ya da sıralı dizi (`["HIGH_FLOOR_ID", "FILL_ID"]`).
+ *   Dizideki id'ler o network'ün sırası geldiğinde bu sırayla denenir.
  * - `networkOrder`: yalnızca o placement için waterfall sırası.
  * - `reloadAfterShow` (varsayılan `true`): `false` ise gösterim sonrası otomatik yeniden
  *   yükleme yapılmaz (oturumda bir kez kullanılan splash placement'ları için).
@@ -137,8 +139,8 @@ object AdsConfigJsonParser {
                     val p = placementsObj.optJSONObject(pid) ?: continue
                     placement(
                         id = pid,
-                        admobAdUnitId = p.optStringOrNull("admob"),
-                        applovinAdUnitId = p.optStringOrNull("applovin") ?: p.optStringOrNull("max"),
+                        admobAdUnitIds = p.optAdUnitIds("admob"),
+                        applovinAdUnitIds = p.optAdUnitIds("applovin").ifEmpty { p.optAdUnitIds("max") },
                         enabled = p.optBoolean("enabled", true),
                         preload = p.optBoolean("preload", true),
                         // placement seviyesinde verilirse format sırasını ezer
@@ -165,6 +167,10 @@ object AdsConfigJsonParser {
         }
         return optStringOrNull(key)?.let { AdNetwork.parseOrder(it).takeIf { order -> order.isNotEmpty() } }
     }
+
+    /** `"id"` ya da `["id_high","id_fill"]` (aynı network'te sırayla denenir); yoksa boş liste. */
+    private fun JSONObject.optAdUnitIds(key: String): List<String> =
+        if (optJSONArray(key) != null) optStringList(key) else listOfNotNull(optStringOrNull(key))
 
     private fun JSONObject.optPositiveIntOrNull(key: String): Int? =
         if (has(key) && !isNull(key)) optInt(key, 0).takeIf { it > 0 } else null

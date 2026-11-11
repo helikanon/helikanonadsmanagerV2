@@ -5,4 +5,4 @@ jdk:
 
 # Demo uygulamasini derlemeye gerek yok; sadece kutuphaneyi yayinla.
 install:
-  - ./gradlew :adsmanager:publishToMavenLocal --no-daemon --stacktrace
+  - ./gradlew :adsmanager:publishToMavenLocal :adsmanager-max:publishToMavenLocal :adsmanager-admob:publishToMavenLocal --no-daemon --stacktrace

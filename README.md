@@ -1,10 +1,12 @@
 # AdsManager — Android Reklam Gösterim Kütüphanesi
 
-AdMob (pure, legacy GMA SDK) ve AppLovin MAX destekli, placement bazlı, waterfall mantıklı reklam yönetim kütüphanesi.
+AdMob (legacy GMA SDK) ve AppLovin MAX destekli, placement bazlı, waterfall mantıklı reklam yönetim kütüphanesi.
+
+**Mediation modları:** Uygulama başına biri seçilir: AppLovin MAX mediation (`adsmanager-max`) ya da AdMob mediation (`adsmanager-admob`). Kod ve API iki modda aynıdır; fark yalnızca eklenen adaptör ailesidir.
 
 **Formatlar:** Interstitial, Rewarded, App Open, Banner (Standart / Adaptive / MREC). Native ileriki sürümde eklenecek.
 
-**MAX adaptörleri:** DT Exchange (Fyber), AdMob (Google), Liftoff (Vungle), Meta, Mintegral, Pangle (ByteDance), Unity Ads.
+**Mediation ağları (iki modda da aynı SDK sürümleri):** AppLovin / AdMob, DT Exchange (Fyber), Liftoff (Vungle), Meta, Mintegral, Pangle (ByteDance), Unity Ads.
 
 ---
 
@@ -42,12 +44,23 @@ dependencyResolutionManagement {
 
 ### JitPack bağımlılığı olarak ekleme
 
+Uygulamaya **yalnızca bir** mediation modülü eklenir; ikisi birlikte eklenmez (aynı ağın iki
+adaptör ailesi aynı ağ SDK'sını farklı sürümlerle ister). Modül core'u (`adsmanager`) kendisi getirir.
+
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("com.github.helikanon:helikanonadsmanagerV2:1.5.0")
+    // AppLovin MAX mediation kullanan uygulamalar:
+    implementation("com.github.helikanon.helikanonadsmanagerV2:adsmanager-max:2.0.0")
+    // ya da AdMob mediation kullanan uygulamalar:
+    // implementation("com.github.helikanon.helikanonadsmanagerV2:adsmanager-admob:2.0.0")
 }
 ```
+
+**1.x'ten geçiş:** Eski `com.github.helikanon:helikanonadsmanagerV2:<sürüm>` satırını yukarıdakilerden
+biriyle değiştirin; bugünkü davranışın karşılığı `adsmanager-max`'tir. Eski koordinat JitPack'te tüm
+modülleri, yani iki adaptör ailesini birden çekebilir. Yalnızca core'u eklemek ise mediation
+adaptörlerini düşürür: crash olmaz ama gelir sessizce düşer.
 
 Sürüm, GitHub'da atılan git tag'inin adıdır. Belirli bir commit'i denemek için tag yerine
 kısa commit hash'i, geliştirme sürümü için `main-SNAPSHOT` da kullanılabilir.
@@ -57,13 +70,14 @@ kısa commit hash'i, geliştirme sürümü için `main-SNAPSHOT` da kullanılabi
 Bu projeyi `helikanonlibs` altında modül olarak kullanıyorsanız:
 
 ```kotlin
-// settings.gradle.kts
-include(":adsmanager")
+// settings.gradle.kts — core ":adsmanager" adıyla dahil edilmeli (mediation modülü ona bağlı)
+include(":adsmanager", ":adsmanager-max")   // AdMob mediation için ":adsmanager-admob"
 project(":adsmanager").projectDir = file("../helikanonlibs/claude_ads_manager/adsmanager")
+project(":adsmanager-max").projectDir = file("../helikanonlibs/claude_ads_manager/adsmanager-max")
 
 // app/build.gradle.kts
 dependencies {
-    implementation(project(":adsmanager"))
+    implementation(project(":adsmanager-max"))
 }
 ```
 
@@ -200,11 +214,40 @@ AdsManager.initialize(this, config)
 ```
 
 SDK'lar arka planda başlatılır; açılış preload'ları init'in bitmesini beklemeden tetiklenir.
-Her waterfall adımı yalnızca kendi network'ünün hazır olmasını bekler: AdMob mediation'sız
-kullanıldığı için `MobileAds.initialize()` çağrılır çağrılmaz, AppLovin MAX ise kendi init
-callback'i dönünce hazır sayılır (ayrıntı: Davranış Kuralları → **Network bazlı init**).
-`initialize(this, config) { ... }` ile verilen opsiyonel callback ise tüm SDK'ların init'i
-bitince çağrılır.
+Her waterfall adımı yalnızca kendi network'ünün hazır olmasını bekler: AdMob, MAX modunda
+`MobileAds.initialize()` çağrılır çağrılmaz, AdMob mediation modunda init callback'i dönünce;
+AppLovin MAX ise kendi init callback'i dönünce hazır sayılır (ayrıntı: Davranış Kuralları →
+**Network bazlı init**). `initialize(this, config) { ... }` ile verilen opsiyonel callback ise
+tüm SDK'ların init'i bitince çağrılır.
+
+### AdMob mediation modu (`adsmanager-admob`)
+
+Mediation AdMob konsolunda (mediation group'lar, ağların app/placement id'leri) kurulur; kod
+tarafı MAX moduyla aynıdır. Config'de:
+
+- `networkOrderString = "admob"` verin, `applovinSdkKey` vermeyin. AppLovin talebi Google'ın
+  AppLovin adaptörüyle AdMob üzerinden gelir; `applovin`'i `networkOrder`'a eklemeyin, yoksa
+  AppLovin SDK'sı iki taraftan farklı ayarlarla init edilir.
+- Aynı placement'a birden fazla AdMob ad unit'i sırayla verilebilir (ör. önce yüksek floor'lu,
+  sonra fill odaklı). İlki dolmazsa veya timeout olursa ikincisi denenir:
+
+  ```kotlin
+  interstitial {
+      networkOrderString = "admob"
+      placement("inter_default",
+          admobAdUnitIds = listOf("ca-app-pub-.../HIGH_FLOOR", "ca-app-pub-.../FILL"))
+  }
+  ```
+
+  JSON'da: `"inter_default": { "admob": ["ca-app-pub-.../HIGH_FLOOR", "ca-app-pub-.../FILL"] }`.
+- Her ad unit kendi `loadTimeoutSec` süresini kullanır; iki unit'li bir placement en kötü
+  durumda iki timeout kadar sürer. Splash gibi kullanıcının beklediği yerlerde placement
+  `loadTimeoutSec`'ini kısa tutun.
+- Gelir event'inde `mediatedNetworkName` reklamı dolduran ağı verir (`"admob"`,
+  `"Meta Audience Network"` ...); `adUnitId` hangi unit'in dolduğunu gösterir.
+- `doNotSell` (CCPA) bu modda hiçbir ağa iletilmez (MAX modunda AppLovin üzerinden dağıtılır).
+  Gerekiyorsa her ağın kendi API'sini uygulamada çağırın (Google'ın ağ bazlı entegrasyon sayfaları).
+- Adaptör kurulumunu test etmek için: `AdsManager.openAdInspector(activity)`.
 
 ### UMP consent (GDPR)
 
@@ -368,6 +411,7 @@ JSON şeması (tam örnek `AdsConfigJsonParser` dokümantasyonunda):
     "initialPreloadPlacements": ["inter_default"],
     "placements": {
       "inter_default": { "admob": "ca-app-pub-.../...", "applovin": "MAX_ID" },
+      "inter_floors": { "admob": ["ca-app-pub-.../HIGH_FLOOR", "ca-app-pub-.../FILL"] },
       "inter_levelup": { "admob": "ca-app-pub-.../...", "preload": false },
       "inter_splash": {
         "admob": "ca-app-pub-.../...", "applovin": "MAX_ID",
@@ -408,7 +452,7 @@ Aynı şey `AdsConfig.toBuilder()` ile manuel de yapılabilir:
 
 ```kotlin
 AdsManager.showMediationDebugger(context)   // MAX adaptör kurulum testi
-AdsManager.openAdInspector(context)         // AdMob Ad Inspector
+AdsManager.openAdInspector(context)         // AdMob Ad Inspector (AdMob mediation adaptör testi)
 AdsManager.setRewardedSsvOptions(userId, customData)  // AdMob rewarded SSV
 ```
 
@@ -416,7 +460,7 @@ AdsManager.setRewardedSsvOptions(userId, customData)  // AdMob rewarded SSV
 
 ## 4. Davranış Kuralları (özet)
 
-- **Waterfall:** `networkOrder` sırasıyla denenir. Bir network başarılı yüklerse diğerleri denenmez; fail/timeout olursa sıradakine geçilir. Sıradaki bir network'ün o placement'ta ad unit id'si yoksa (ya da boş string ise) adım atlanır.
+- **Waterfall:** `networkOrder` sırasıyla denenir. Bir network başarılı yüklerse diğerleri denenmez; fail/timeout olursa sıradakine geçilir. Sıradaki bir network'ün o placement'ta ad unit id'si yoksa (ya da boş string ise) adım atlanır. Bir network'e birden fazla ad unit verilmişse (`admobAdUnitIds` / JSON dizisi) o network'ün sırası geldiğinde bu sırayla denenir; ör. `admob,applovin` ve AdMob'da `[HIGH, FILL]` → AdMob HIGH → AdMob FILL → MAX.
 - **Placement bazlı sıra & timeout:** `networkOrder` ve `loadTimeoutSec` placement seviyesinde de verilebilir ve format/global değeri ezer. Tipik kullanım: format sırası `applovin,admob` iken splash placement'ında `admob,applovin` + kısa `loadTimeoutSec` ile açılışta hızlı AdMob gösterimi.
 - **Tek kullanımlık placement:** Placement `reloadAfterShow = false` ise açılışta (preload açıksa) yüklenir, gösterimden sonra otomatik yeniden yüklenmez ve load hatası sonrası backoff retry döngüsü kurulmaz. Oturumda bir kez kullanılan splash placement'ları için boşa giden request'i önler.
 - **Placement bazlı saklama:** Her placement için ayrı reklam tutulur. `load/show`'da placement verilmezse `defaultPlacement` kullanılır.
@@ -427,7 +471,7 @@ AdsManager.setRewardedSsvOptions(userId, customData)  // AdMob rewarded SSV
 - **Fullscreen kilidi bekçisi:** Kilit normalde network'ün dismiss/show-failed callback'iyle açılır. Reklam activity'sinin üstüne uygulamanın kendi activity'si gelirse (ör. interstitial açıkken bildirime dokunulup Splash/Main yeniden başlatılırsa) bu callback hiç gelmez. Bu durumda kilit, reklam SDK'sına ait olmayan bir activity resume olduğunda zorla açılır (`FullscreenGate force-released` uyarısı). Reklam activity'si ön planda değilken kilit en geç 5 dk sonra da açılır; reklam activity'si hâlâ ön plandaysa (uzun rewarded, reklam tıklamasıyla tarayıcıya gidilmesi) süre uzatılır, gerçek reklamın kilidi bırakılmaz. Zorla açılış uygulamaya tek seferlik terminal callback olarak iletilir: reklam gösterilmişse `onDismissed`, henüz gösterilmemişse `onShowFailed`; sonradan gelen gerçek dismiss callback'i yoksayılır (geç gelen ödül yine iletilir). Tüketilen placement `reloadAfterShow` kuralına göre yeniden yüklenir; MAX rewarded için aynı ad unit gösterimdeyken yükleme, gösterim bitene kadar ertelenir. Uygulama tarafında bildirim intent'lerinde `CLEAR_TOP` yerine launcher bayrakları (`NEW_TASK | RESET_TASK_IF_NEEDED`) kullanmak sorunun oluşmasını baştan engeller.
 - **App open koruması:** Interstitial/rewarded açıkken app open gösterilmez; son inter/rewarded gösteriminden `appOpenMinGapSec`, son app open gösteriminden `appOpenMinIntervalSec` geçmeden app open gösterilmez.
 - **Offline:** Bağlantı yokken load bekletilir, bağlantı gelince otomatik tetiklenir.
-- **Network bazlı init:** Her waterfall adımı (fullscreen ve banner) yalnızca kendi network'ünün SDK'sı hazır olunca başlar; yavaş açılan diğer SDK'yı beklemez. AdMob mediation'sız kullanıldığı için `MobileAds.initialize()` çağrılır çağrılmaz hazır sayılır, init callback'i yalnızca loglanır (Google'a göre callback'i beklemek mediation adapter'ları için gerekir). AppLovin MAX ise kendi init callback'i dönünce hazır olur; MAX'e bundan önce istek atılmaz. Örneğin `admob,applovin` sıralı splash placement'ı AdMob'dan hemen yüklemeye başlar; AdMob fail olursa MAX adımı gerekiyorsa MAX init'ini bekler (debug logu: `Waterfall: waiting for APPLOVIN init ...`). SDK key'i verilmemiş AppLovin hemen hazır sayılır ve adımları atlanır. Init callback'i 20 sn içinde dönmeyen network hazır sayılır (`... SDK init timed out after 20s` uyarısı). SDK'lar başlamadan (ör. UMP consent beklenirken) yapılan çağrılar ilgili network hazır olunca çalışır. `initialize(..., onReady)` callback'i tüm SDK'ların init callback'i dönünce (veya 20 sn dolunca) çağrılır.
+- **Network bazlı init:** Her waterfall adımı (fullscreen ve banner) yalnızca kendi network'ünün SDK'sı hazır olunca başlar; yavaş açılan diğer SDK'yı beklemez. MAX modunda (`adsmanager-max`, AdMob mediation'sız) AdMob `MobileAds.initialize()` çağrılır çağrılmaz hazır sayılır, init callback'i yalnızca loglanır. AdMob mediation modunda (`adsmanager-admob`) ise adaptörler ilk isteğe teklif verebilsin diye AdMob init callback'i dönünce hazır olur (Google: callback'i beklemek mediation adapter'ları için gerekir); mod, modülün manifest'e eklediği işaretten anlaşılır, ayrıca ayar gerekmez. AppLovin MAX ise kendi init callback'i dönünce hazır olur; MAX'e bundan önce istek atılmaz. Örneğin `admob,applovin` sıralı splash placement'ı AdMob'dan hemen yüklemeye başlar; AdMob fail olursa MAX adımı gerekiyorsa MAX init'ini bekler (debug logu: `Waterfall: waiting for APPLOVIN init ...`). SDK key'i verilmemiş AppLovin hemen hazır sayılır ve adımları atlanır. Init callback'i 20 sn içinde dönmeyen network hazır sayılır (`... SDK init timed out after 20s` uyarısı). SDK'lar başlamadan (ör. UMP consent beklenirken) yapılan çağrılar ilgili network hazır olunca çalışır. `initialize(..., onReady)` callback'i tüm SDK'ların init callback'i dönünce (veya 20 sn dolunca) çağrılır.
 - **Kill switch:** `adsEnabled` (global) → format `enabled` → placement `enabled` hiyerarşisiyle kapatma.
 - Tüm callback'ler main thread'de çağrılır.
 
@@ -452,8 +496,8 @@ MAX adımları atlanır.
 
 ## 6. Notlar
 
-- AdMob **legacy** SDK (`play-services-ads:25.3.0`) kullanılır; mediation özelliği kullanılmaz (pure AdMob). 25.3.0 seçildi çünkü AppLovin `google-adapter:25.3.0.0` bu sürümle sertifikalı — GMA'yı yükseltirken google-adapter'ı da aynı majöre yükseltin.
-- Tüm MAX adaptör sürümleri `adsmanager/build.gradle.kts` içinde sabitlenmiştir (kütüphane JitPack'ten yayınlandığı için tekrarlanabilir build şart). Güncel adaptörlere geçmek için o bloğu düzenleyip yeni bir sürüm yayınlayın.
+- AdMob **legacy** SDK (`play-services-ads:25.4.0`) kullanılır. 25.4.0 seçildi çünkü hem AppLovin `google-adapter:25.4.0.0` hem de `adsmanager-admob`'daki Google adaptörleri bu sürümle sertifikalı — GMA'yı yükseltirken iki modüldeki adaptörleri de birlikte yükseltin.
+- Tüm adaptör sürümleri `adsmanager-max/build.gradle.kts` ve `adsmanager-admob/build.gradle.kts` içinde sabitlenmiştir (kütüphane JitPack'ten yayınlandığı için tekrarlanabilir build şart). İki modül aynı ağ SDK sürümlerini kullanır; güncellerken ikisini birlikte düzenleyip yeni bir sürüm yayınlayın.
 - **Aynı MAX rewarded ad unit id'sini birden fazla placement'ta kullanmayın** — `MaxRewardedAd` ad unit başına singleton'dır; kütüphane gösterim olaylarını doğru wrapper'a yönlendirir ama aynı anda iki placement'a aynı unit ile load etmek kaçınılması gereken bir kullanım.
 - MAX adaptive banner, MAX 13.x'in önerdiği `MaxAdViewConfiguration.builder().setAdaptiveType(ANCHORED)` API'siyle oluşturulur (legacy `adaptive_banner` extra parametresi 13.6+ sürümlerde config hatası logluyordu, kullanılmaz).
 - Bu kod cloud ortamında derlenemedi (Google Maven erişimi yok). İlk `gradle sync` / build sırasında ufak derleme düzeltmeleri gerekebilir; hata çıktısını paylaşmanız yeterli.

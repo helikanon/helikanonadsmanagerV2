@@ -63,7 +63,9 @@ internal object AdMobBannerAdapter {
         adView.adUnitId = adUnitId
         adView.setAdSize(resolveSize(context, type))
         adView.setOnPaidEventListener { adValue ->
-            AdMobFullscreenAdapter.emitRevenue(AdFormat.BANNER, placementId, adUnitId, adValue)
+            AdMobFullscreenAdapter.emitRevenue(
+                AdFormat.BANNER, placementId, adUnitId, adValue, AdMobFullscreenAdapter.sourceName(adView.responseInfo)
+            )
         }
 
         val handle = object : BannerHandle {

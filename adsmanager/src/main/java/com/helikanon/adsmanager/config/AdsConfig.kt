@@ -5,7 +5,12 @@ package com.helikanon.adsmanager.config
  */
 class PlacementConfig(
     val id: String,
-    val adUnitIds: Map<AdNetwork, String>,
+    /**
+     * Network başına ad unit id'leri. Bir network'e birden fazla id verilirse waterfall'da o
+     * network'ün sırası geldiğinde bu sırayla denenir (ör. AdMob mediation'da önce yüksek
+     * floor'lu, sonra fill odaklı unit).
+     */
+    val adUnitIds: Map<AdNetwork, List<String>>,
     val enabled: Boolean = true,
     /**
      * Bu placement otomatik preload'a katılsın mı? `false` ise ne açılışta yüklenir
@@ -38,7 +43,7 @@ class PlacementConfig(
      */
     val loadTimeoutSec: Int? = null
 ) {
-    fun adUnitIdFor(network: AdNetwork): String? = adUnitIds[network]?.takeIf { it.isNotBlank() }
+    fun adUnitIdsFor(network: AdNetwork): List<String> = adUnitIds[network].orEmpty().filter { it.isNotBlank() }
 }
 
 /**
@@ -84,6 +89,13 @@ class FormatConfig(
     /** Bu placement için geçerli waterfall sırası (placement override'ı varsa o kazanır). */
     fun networkOrderFor(placement: PlacementConfig): List<AdNetwork> =
         placement.networkOrder?.takeIf { it.isNotEmpty() } ?: networkOrder
+
+    /**
+     * Waterfall adımları: [networkOrderFor] sırasındaki her network için o network'ün ad unit
+     * id'leri, verildikleri sırayla. Ad unit id'si olmayan network atlanır.
+     */
+    fun waterfallSteps(placement: PlacementConfig): List<Pair<AdNetwork, String>> =
+        networkOrderFor(placement).flatMap { network -> placement.adUnitIdsFor(network).map { network to it } }
 
     /** Açılışta yüklenecek placement'lar. */
     fun initialPreloadPlacements(): List<PlacementConfig> {
@@ -287,6 +299,9 @@ class AdsConfig private constructor(
          * @param networkOrder bu placement'a özel waterfall sırası; `null` ise format sırası kullanılır.
          * @param reloadAfterShow `false` ise gösterim sonrası otomatik yeniden yükleme yapılmaz.
          * @param loadTimeoutSec bu placement'a özel network başına load timeout'u (saniye).
+         * @param admobAdUnitIds aynı network'te sırayla denenecek ad unit id'leri (ör. önce yüksek
+         *   floor'lu, sonra fill odaklı). Tekil [admobAdUnitId] de verilmişse ilk o denenir.
+         * @param applovinAdUnitIds [admobAdUnitIds]'in MAX karşılığı.
          */
         @JvmOverloads
         fun placement(
@@ -297,15 +312,16 @@ class AdsConfig private constructor(
             preload: Boolean = true,
             networkOrder: List<AdNetwork>? = null,
             reloadAfterShow: Boolean = true,
-            loadTimeoutSec: Int? = null
+            loadTimeoutSec: Int? = null,
+            admobAdUnitIds: List<String> = emptyList(),
+            applovinAdUnitIds: List<String> = emptyList()
         ) {
-            val map = buildMap {
-                admobAdUnitId?.let { put(AdNetwork.ADMOB, it) }
-                applovinAdUnitId?.let { put(AdNetwork.APPLOVIN, it) }
-            }
             placements[id] = PlacementConfig(
                 id = id,
-                adUnitIds = map,
+                adUnitIds = mapOf(
+                    AdNetwork.ADMOB to listOfNotNull(admobAdUnitId) + admobAdUnitIds,
+                    AdNetwork.APPLOVIN to listOfNotNull(applovinAdUnitId) + applovinAdUnitIds
+                ),
                 enabled = enabled,
                 preload = preload,
                 networkOrder = networkOrder,

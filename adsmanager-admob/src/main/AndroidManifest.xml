@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Core'a AdMob mediation kullanıldığını bildirir (InitManager okur): AdMob yüklemeleri,
+             adaptörler ilk isteğe teklif verebilsin diye MobileAds init callback'ini bekler. -->
+        <meta-data
+            android:name="com.helikanon.adsmanager.ADMOB_MEDIATION"
+            android:value="true" />
+    </application>
+</manifest>

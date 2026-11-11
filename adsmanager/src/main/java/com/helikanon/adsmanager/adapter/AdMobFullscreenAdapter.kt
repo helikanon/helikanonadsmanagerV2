@@ -7,6 +7,7 @@ import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdValue
 import com.google.android.gms.ads.FullScreenContentCallback
 import com.google.android.gms.ads.LoadAdError
+import com.google.android.gms.ads.ResponseInfo
 import com.google.android.gms.ads.appopen.AppOpenAd
 import com.google.android.gms.ads.interstitial.InterstitialAd
 import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
@@ -99,8 +100,18 @@ internal object AdMobFullscreenAdapter {
         else -> "UNKNOWN"
     }
 
+    /**
+     * Reklamı dolduran kaynak: AdMob'un kendi talebi "admob", AdMob mediation'da diğer ağlar
+     * GMA'nın verdiği ad (ör. "Meta Audience Network"). Mediation'sız kullanımda hep "admob".
+     */
+    internal fun sourceName(info: ResponseInfo?): String =
+        info?.loadedAdapterResponseInfo
+            ?.takeIf { it.adapterClassName != "com.google.ads.mediation.admob.AdMobAdapter" }
+            ?.adSourceName?.takeIf { it.isNotBlank() }
+            ?: "admob"
+
     internal fun emitRevenue(
-        format: AdFormat, placementId: String, adUnitId: String, adValue: AdValue
+        format: AdFormat, placementId: String, adUnitId: String, adValue: AdValue, sourceName: String
     ) {
         EventCenter.revenue(
             AdRevenue(
@@ -111,7 +122,7 @@ internal object AdMobFullscreenAdapter {
                 revenue = adValue.valueMicros / 1_000_000.0,
                 currency = adValue.currencyCode,
                 precision = precisionName(adValue.precisionType),
-                mediatedNetworkName = "admob"
+                mediatedNetworkName = sourceName
             )
         )
     }
@@ -148,7 +159,7 @@ internal object AdMobFullscreenAdapter {
         override fun show(activity: Activity, listener: ShowListener) {
             val current = ad ?: run { listener.onShowFailed("Ad already consumed"); return }
             ad = null
-            current.setOnPaidEventListener { v -> emitRevenue(format, placementId, adUnitId, v) }
+            current.setOnPaidEventListener { v -> emitRevenue(format, placementId, adUnitId, v, sourceName(current.responseInfo)) }
             current.fullScreenContentCallback = fullScreenCallback(listener) {}
             current.show(activity)
         }
@@ -170,7 +181,7 @@ internal object AdMobFullscreenAdapter {
         override fun show(activity: Activity, listener: ShowListener) {
             val current = ad ?: run { listener.onShowFailed("Ad already consumed"); return }
             ad = null
-            current.setOnPaidEventListener { v -> emitRevenue(format, placementId, adUnitId, v) }
+            current.setOnPaidEventListener { v -> emitRevenue(format, placementId, adUnitId, v, sourceName(current.responseInfo)) }
             current.fullScreenContentCallback = fullScreenCallback(listener) {}
             current.show(activity) { reward ->
                 listener.onRewardEarned(RewardItem(reward.amount, reward.type))
@@ -194,7 +205,7 @@ internal object AdMobFullscreenAdapter {
         override fun show(activity: Activity, listener: ShowListener) {
             val current = ad ?: run { listener.onShowFailed("Ad already consumed"); return }
             ad = null
-            current.setOnPaidEventListener { v -> emitRevenue(format, placementId, adUnitId, v) }
+            current.setOnPaidEventListener { v -> emitRevenue(format, placementId, adUnitId, v, sourceName(current.responseInfo)) }
             current.fullScreenContentCallback = fullScreenCallback(listener) {}
             current.show(activity)
         }

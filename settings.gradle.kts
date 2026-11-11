@@ -26,4 +26,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "claude_ads_manager"
 include(":adsmanager")
+include(":adsmanager-max")
+include(":adsmanager-admob")
 include(":demo")

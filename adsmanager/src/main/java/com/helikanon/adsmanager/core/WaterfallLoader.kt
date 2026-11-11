@@ -24,9 +24,8 @@ internal object WaterfallLoader {
         placement: PlacementConfig,
         onResult: (LoadedFullscreenAd?, String?) -> Unit
     ) {
-        val candidates = formatConfig.networkOrderFor(placement)
-            .filter { it != AdNetwork.APPLOVIN || InitManager.applovinUsable }
-            .mapNotNull { network -> placement.adUnitIdFor(network)?.let { network to it } }
+        val candidates = formatConfig.waterfallSteps(placement)
+            .filter { it.first != AdNetwork.APPLOVIN || InitManager.applovinUsable }
 
         if (candidates.isEmpty()) {
             onResult(null, "No usable ad unit id configured for placement '${placement.id}' (${formatConfig.format})")
@@ -67,7 +66,7 @@ internal object WaterfallLoader {
             attemptAt(context, config, formatConfig, placement, candidates, index + 1, errors, onResult)
             return
         }
-        AdsLogger.d("Waterfall: loading $format/${placement.id} from $network (step ${index + 1}/${candidates.size})")
+        AdsLogger.d("Waterfall: loading $format/${placement.id} from $network $adUnitId (step ${index + 1}/${candidates.size})")
 
         var settled = false
         val timeoutSec = placement.loadTimeoutSec ?: config.loadTimeoutSec
