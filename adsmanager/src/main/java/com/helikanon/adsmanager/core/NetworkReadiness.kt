@@ -10,6 +10,8 @@ import com.helikanon.adsmanager.config.AdNetwork
  * - Network'e bağlı iş yalnızca o network'ü bekler; yavaş açılan diğer SDK'yı beklemez.
  * - Network'süz iş (`network = null`) tüm SDK'ların hazır olmasını bekler.
  * - [markAllReady] sonrası her network hazır sayılır (bu oturumda init edilmemiş olanlar dahil).
+ * - [hasInitialized] ise yalnızca network'ün kendi init'i bittiyse true'dur; 20 sn zaman aşımında
+ *   [markAllReady] çağrılsa da geç gelen callback'e kadar false kalır.
  */
 internal class NetworkReadiness {
 
@@ -30,8 +32,11 @@ internal class NetworkReadiness {
         if (isReady(network)) action() else pending.add(network to action)
     }
 
+    fun hasInitialized(network: AdNetwork): Boolean = network in readyNetworks
+
     fun markReady(network: AdNetwork) {
-        if (allReady || !readyNetworks.add(network)) return
+        // Zaman aşımından sonra gelen callback de kaydedilir (hasInitialized); kuyrukta iş kalmamıştır
+        if (!readyNetworks.add(network) || allReady) return
         flush { it == network }
     }
 

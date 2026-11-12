@@ -60,6 +60,7 @@ internal object InitManager {
 
             // Güvenlik ağı: init callback'i hiç dönmeyen network kendi adımlarını ve tüm
             // SDK'ları bekleyen işleri sonsuza dek bekletmesin; 20 sn sonra hazır sayılır.
+            // MAX adımları ise MAX init'i bitene kadar atlanır (loader'lar applovinInitialized'a bakar).
             MainThread.runDelayed(20_000) {
                 if (!isReady) {
                     initPending.forEach {
@@ -196,4 +197,11 @@ internal object InitManager {
 
     /** [network] ile yükleme başlatılabilir mi? Main thread'den çağrılır. */
     fun isReady(network: AdNetwork): Boolean = readiness.isReady(network)
+
+    /**
+     * MAX init'i bitti mi? 20 sn zaman aşımında [isReady] true olsa da MAX'e init bitmeden istek
+     * atılmaz: AppLovin bu yüklemeleri init'e kadar bekletip geç döndürüyor, load timeout'a
+     * takılıp boşa gidiyorlardı. GMA ise init'ten önceki istekleri kendisi karşılar.
+     */
+    fun applovinInitialized(): Boolean = readiness.hasInitialized(AdNetwork.APPLOVIN)
 }

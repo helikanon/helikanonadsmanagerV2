@@ -66,6 +66,13 @@ internal object WaterfallLoader {
             attemptAt(context, config, formatConfig, placement, candidates, index + 1, errors, onResult)
             return
         }
+        // 20 sn zaman aşımı dolmuş ama MAX init'i sürüyor: adım atlanır, init bitince MAX yine denenir
+        if (network == AdNetwork.APPLOVIN && !InitManager.applovinInitialized()) {
+            AdsLogger.d("Waterfall: skipping $network for $format/${placement.id}, SDK init not finished (step ${index + 1}/${candidates.size})")
+            errors.add("$network: SDK init not finished")
+            attemptAt(context, config, formatConfig, placement, candidates, index + 1, errors, onResult)
+            return
+        }
         AdsLogger.d("Waterfall: loading $format/${placement.id} from $network $adUnitId (step ${index + 1}/${candidates.size})")
 
         var settled = false

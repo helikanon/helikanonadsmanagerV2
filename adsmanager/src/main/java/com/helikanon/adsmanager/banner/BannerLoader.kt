@@ -97,6 +97,13 @@ internal object BannerLoader {
             attemptAt(contextRef, controller, type, config, formatConfig, placement, candidates, index + 1, errors)
             return
         }
+        // 20 sn zaman aşımı dolmuş ama MAX init'i sürüyor: adım atlanır, init bitince MAX yine denenir
+        if (network == AdNetwork.APPLOVIN && !InitManager.applovinInitialized()) {
+            AdsLogger.d("Banner waterfall: skipping $network for '${placement.id}', SDK init not finished (step ${index + 1}/${candidates.size})")
+            errors.add("$network: SDK init not finished")
+            attemptAt(contextRef, controller, type, config, formatConfig, placement, candidates, index + 1, errors)
+            return
+        }
         AdsLogger.d("Banner waterfall: loading '${placement.id}' from $network $adUnitId (step ${index + 1}/${candidates.size})")
 
         var settled = false

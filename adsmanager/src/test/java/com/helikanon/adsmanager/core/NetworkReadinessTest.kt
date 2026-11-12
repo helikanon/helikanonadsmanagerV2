@@ -2,6 +2,7 @@ package com.helikanon.adsmanager.core
 
 import com.helikanon.adsmanager.config.AdNetwork
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -51,5 +52,18 @@ class NetworkReadinessTest {
         assertEquals(0, readiness.pendingCount)
         // Tümü hazır olduktan sonra bu oturumda init edilmemiş network de beklemez
         assertTrue(readiness.isReady(AdNetwork.ADMOB))
+    }
+
+    @Test
+    fun `after timeout a late network is ready but initialized only after its own callback`() {
+        readiness.markReady(AdNetwork.ADMOB)
+        readiness.markAllReady() // 20 sn zaman aşımı: MAX init'i hâlâ sürüyor
+
+        assertTrue(readiness.isReady(AdNetwork.APPLOVIN))
+        assertFalse(readiness.hasInitialized(AdNetwork.APPLOVIN)) // loader MAX adımını atlar
+        assertTrue(readiness.hasInitialized(AdNetwork.ADMOB))
+
+        readiness.markReady(AdNetwork.APPLOVIN) // geç gelen init callback'i
+        assertTrue(readiness.hasInitialized(AdNetwork.APPLOVIN)) // MAX yeniden denenir
     }
 }
