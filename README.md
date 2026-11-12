@@ -51,9 +51,9 @@ adaptör ailesi aynı ağ SDK'sını farklı sürümlerle ister). Modül core'u 
 // app/build.gradle.kts
 dependencies {
     // AppLovin MAX mediation kullanan uygulamalar:
-    implementation("com.github.helikanon.helikanonadsmanagerV2:adsmanager-max:2.0.0")
+    implementation("com.github.helikanon.helikanonadsmanagerV2:adsmanager-max:2.0.1")
     // ya da AdMob mediation kullanan uygulamalar:
-    // implementation("com.github.helikanon.helikanonadsmanagerV2:adsmanager-admob:2.0.0")
+    // implementation("com.github.helikanon.helikanonadsmanagerV2:adsmanager-admob:2.0.1")
 }
 ```
 
