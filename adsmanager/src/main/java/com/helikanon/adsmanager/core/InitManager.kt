@@ -146,11 +146,13 @@ internal object InitManager {
                     initFinished(AdNetwork.ADMOB)
                 }
             }
-            // Mediation'sız AdMob'da yüklemeler init callback'ini beklemez (Google: beklemek yalnızca
-            // mediation adapter'ları için gerekir); initialize() çağrıldıktan sonra hazır sayılır.
-            // adsmanager-admob ile ise adaptörler ilk isteğe teklif verebilsin diye callback beklenir.
-            if (!admobMediation) MainThread.run { readiness.markReady(AdNetwork.ADMOB) }
         }, "AdsManager-AdMob-init").start()
+
+        // Mediation'sız AdMob'da yüklemeler init'i beklemez (Google: beklemek yalnızca mediation
+        // adapter'ları için gerekir); GMA init'ten önce gelen istekleri kendisi sıraya alır. 2.0.1'de
+        // initialize()'ın dönüşü beklendiği için yavaş cihazda ilk istek saniyelerce gecikiyordu.
+        // adsmanager-admob ile ise adaptörler ilk isteğe teklif verebilsin diye callback beklenir.
+        if (!admobMediation) readiness.markReady(AdNetwork.ADMOB)
     }
 
     /** adsmanager-admob'un gizlilik kancası; bulunamazsa null (uyarı loglanır). */
