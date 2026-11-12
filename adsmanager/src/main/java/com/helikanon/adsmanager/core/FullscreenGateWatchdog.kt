@@ -46,6 +46,16 @@ internal object FullscreenGateWatchdog : Application.ActivityLifecycleCallbacks 
     /** Son resume olan reklam activity'si (destroy takibi için). */
     private var lastResumedAdRef: WeakReference<Activity>? = null
 
+    /** Son resume olan uygulama (reklam olmayan) activity'si. */
+    private var lastAppActivityRef: WeakReference<Activity>? = null
+
+    /**
+     * Kapanmamış son uygulama activity'si, yoksa null. AdMob mediation yüklemelerinde context
+     * olarak verilir: bazı adaptörler (DT Exchange, Unity) Activity olmadan yükleyemiyor.
+     */
+    val currentAppActivity: Activity?
+        get() = lastAppActivityRef?.get()?.takeUnless { it.isFinishing || it.isDestroyed }
+
     /**
      * Bu süreçte en son resume olan activity bir reklam activity'siyse ve henüz
      * destroy edilmediyse true. Kullanıcı reklama tıklayıp tarayıcıya gittiğinde
@@ -116,6 +126,7 @@ internal object FullscreenGateWatchdog : Application.ActivityLifecycleCallbacks 
             lastResumedAdRef = WeakReference(activity)
             return
         }
+        lastAppActivityRef = WeakReference(activity)
         if (!FullscreenGate.isShowing) return
 
         // Normal kapanışta dismiss callback'i host resume'dan hemen sonra gelir ve kilidi
@@ -143,6 +154,7 @@ internal object FullscreenGateWatchdog : Application.ActivityLifecycleCallbacks 
             lastResumedAdRef = null
             lastResumedWasAd = false
         }
+        if (lastAppActivityRef?.get() === activity) lastAppActivityRef = null
     }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit

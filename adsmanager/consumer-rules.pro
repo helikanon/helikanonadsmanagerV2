@@ -35,3 +35,6 @@
 # DT Exchange (Fyber)
 -keep class com.fyber.** { *; }
 -dontwarn com.fyber.**
+
+# Google mediation adaptörleri (adsmanager-admob; AdMobMediationPrivacy Pangle adaptörünü çağırır)
+-dontwarn com.google.ads.mediation.**

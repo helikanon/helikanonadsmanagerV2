@@ -73,7 +73,13 @@ internal object WaterfallLoader {
             attemptAt(context, config, formatConfig, placement, candidates, index + 1, errors, onResult)
             return
         }
-        AdsLogger.d("Waterfall: loading $format/${placement.id} from $network $adUnitId (step ${index + 1}/${candidates.size})")
+        // AdMob mediation'da bazı adaptörler (DT Exchange, Unity) interstitial'ı Activity olmadan
+        // yükleyemiyor; Google da Activity öneriyor. Açık activity yoksa application context kalır.
+        val loadContext = if (network == AdNetwork.ADMOB && InitManager.admobMediation) {
+            FullscreenGateWatchdog.currentAppActivity ?: context
+        } else context
+        val contextNote = if (loadContext !== context) " with ${loadContext.javaClass.simpleName}" else ""
+        AdsLogger.d("Waterfall: loading $format/${placement.id} from $network $adUnitId$contextNote (step ${index + 1}/${candidates.size})")
 
         var settled = false
         val timeoutSec = placement.loadTimeoutSec ?: config.loadTimeoutSec
@@ -91,7 +97,7 @@ internal object WaterfallLoader {
         MainThread.handler.postDelayed(timeoutRunnable, timeoutMs)
 
         Adapters.loadFullscreen(
-            context = context,
+            context = loadContext,
             network = network,
             format = format,
             placementId = placement.id,

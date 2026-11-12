@@ -10,6 +10,7 @@ import com.google.android.gms.ads.MobileAds
 import com.google.android.gms.ads.RequestConfiguration
 import com.helikanon.adsmanager.config.AdNetwork
 import com.helikanon.adsmanager.config.AdsConfig
+import com.helikanon.adsmanager.mediation.MediationPrivacy
 
 /**
  * AdMob ve AppLovin SDK'larını asenkron initialize eder.
@@ -22,12 +23,17 @@ internal object InitManager {
 
     private val readiness = NetworkReadiness()
 
-    /** Tüm SDK'ların init callback'i döndü mü (ya da 20 sn zaman aşımı doldu mu)? */
+    /** Tüm SDK'ların init callback'i döndü mü (ya da güvenlik süresi doldu mu)? */
     val isReady: Boolean get() = readiness.allReady
 
     /** AppLovin kullanılabilir mi? (SDK key verilmemişse false; waterfall MAX adımlarını atlar.) */
     @Volatile
     var applovinUsable: Boolean = true
+        private set
+
+    /** adsmanager-admob ile AdMob mediation modu mu (manifest işareti)? [initialize]'da belirlenir. */
+    @Volatile
+    var admobMediation: Boolean = false
         private set
 
     private var initStarted = false
@@ -53,18 +59,22 @@ internal object InitManager {
                 return@run
             }
 
+            admobMediation = AdNetwork.ADMOB in networks && usesAdMobMediation(appContext)
             initPending += networks
             if (config.testMode) warnMissingTestDeviceIds(config, networks)
             if (AdNetwork.ADMOB in networks) initAdMob(appContext, config)
             if (AdNetwork.APPLOVIN in networks) initAppLovin(appContext, config)
 
             // Güvenlik ağı: init callback'i hiç dönmeyen network kendi adımlarını ve tüm
-            // SDK'ları bekleyen işleri sonsuza dek bekletmesin; 20 sn sonra hazır sayılır.
+            // SDK'ları bekleyen işleri sonsuza dek bekletmesin; süre dolunca hazır sayılır.
             // MAX adımları ise MAX init'i bitene kadar atlanır (loader'lar applovinInitialized'a bakar).
-            MainThread.runDelayed(20_000) {
+            // AdMob mediation'da GMA callback'i adaptör init'leri bitince ya da en geç 30 sn'de gelir;
+            // ilk isteğe tüm adaptörler katılsın diye (Google'ın önerisi) süre bundan uzun tutulur.
+            val timeoutMs = if (admobMediation) 35_000L else 20_000L
+            MainThread.runDelayed(timeoutMs) {
                 if (!isReady) {
                     initPending.forEach {
-                        AdsLogger.w("$it SDK init timed out after 20s; proceeding with pending actions")
+                        AdsLogger.w("$it SDK init timed out after ${timeoutMs / 1000}s; proceeding with pending actions")
                     }
                     markAllReady()
                 }
@@ -107,21 +117,48 @@ internal object InitManager {
                 }
             }.build()
             MobileAds.setRequestConfiguration(reqConfig)
+        } catch (e: Exception) {
+            AdsLogger.e("AdMob request configuration failed", e)
+        }
 
-            MobileAds.initialize(context) { initStatus ->
+        // Mediation'da Google "satma" (CCPA) tercihini ağlara kendisi iletemez; her ağın API'si çağrılır
+        val doNotSell = config.doNotSell
+        val privacy = if (admobMediation && doNotSell != null) mediationPrivacy() else null
+        val logOnMain: (String) -> Unit = { msg -> MainThread.run { AdsLogger.i(msg) } }
+
+        // Google: MobileAds.initialize() arka plan thread'inde çağrılmalı
+        Thread({
+            if (privacy != null && doNotSell != null) privacy.beforeInit(context, doNotSell, logOnMain)
+            try {
+                MobileAds.initialize(context) { initStatus ->
+                    MainThread.run {
+                        AdsLogger.i("AdMob initialized: ${initStatus.adapterStatusMap.keys.size} adapters")
+                        if (admobMediation) initStatus.adapterStatusMap.forEach { (name, status) ->
+                            AdsLogger.d("AdMob adapter $name: ${status.initializationState} ${status.description}")
+                        }
+                        if (privacy != null && doNotSell != null) privacy.afterInit(context, doNotSell) { AdsLogger.i(it) }
+                        initFinished(AdNetwork.ADMOB)
+                    }
+                }
+            } catch (e: Exception) {
                 MainThread.run {
-                    AdsLogger.i("AdMob initialized: ${initStatus.adapterStatusMap.keys.size} adapters")
+                    AdsLogger.e("AdMob init failed", e)
                     initFinished(AdNetwork.ADMOB)
                 }
             }
-        } catch (e: Exception) {
-            AdsLogger.e("AdMob init failed", e)
-            MainThread.run { initFinished(AdNetwork.ADMOB) }
-        }
-        // Mediation'sız AdMob'da yüklemeler init callback'ini beklemez (Google: beklemek yalnızca
-        // mediation adapter'ları için gerekir). adsmanager-admob ile ise adaptörler ilk isteğe teklif
-        // verebilsin diye callback beklenir; hazır işaretini initFinished koyar.
-        if (!usesAdMobMediation(context)) readiness.markReady(AdNetwork.ADMOB)
+            // Mediation'sız AdMob'da yüklemeler init callback'ini beklemez (Google: beklemek yalnızca
+            // mediation adapter'ları için gerekir); initialize() çağrıldıktan sonra hazır sayılır.
+            // adsmanager-admob ile ise adaptörler ilk isteğe teklif verebilsin diye callback beklenir.
+            if (!admobMediation) MainThread.run { readiness.markReady(AdNetwork.ADMOB) }
+        }, "AdsManager-AdMob-init").start()
+    }
+
+    /** adsmanager-admob'un gizlilik kancası; bulunamazsa null (uyarı loglanır). */
+    private fun mediationPrivacy(): MediationPrivacy? = try {
+        Class.forName(MediationPrivacy.IMPLEMENTATION).getDeclaredConstructor().newInstance() as MediationPrivacy
+    } catch (e: Exception) {
+        AdsLogger.w("doNotSell is not forwarded: mediation privacy hook not found (${e.message})")
+        null
     }
 
     /** adsmanager-admob modülü bu işareti manifest'e ekler (o modülün AndroidManifest.xml'i). */
